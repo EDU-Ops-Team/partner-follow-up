@@ -2,7 +2,11 @@
 
 import { internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { SCHEDULING_CHECK_INTERVAL_DAYS } from "./lib/constants";
+import {
+  SCHEDULING_CHECK_INTERVAL_DAYS,
+  INSPECTION_CONTACT_EMAIL,
+  INSPECTION_CONTACT_NAME,
+} from "./lib/constants";
 import { fetchAirtableData } from "./services/airtableScraper";
 import { fetchInspectionData } from "./services/googleSheets";
 import { postToChat } from "./services/googleChat";
@@ -95,6 +99,8 @@ export const run = internalAction({
                     inspectionDate: row.inspectionDate,
                     inspectionTime: row.inspectionTime,
                     reportDueDate: row.reportDueDate,
+                    inspectionContactEmail: INSPECTION_CONTACT_EMAIL,
+                    inspectionContactName: INSPECTION_CONTACT_NAME,
                   },
                 });
                 await ctx.runMutation(internal.auditLogs.create, {

@@ -147,6 +147,12 @@ export default function Dashboard() {
                       <span className="text-gray-500">Responsible Party</span>
                       <span className="text-gray-800">{site.responsiblePartyName ?? "—"}</span>
                     </div>
+                    {site.inspectionContactName && (
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">Inspection Contact</span>
+                        <span className="text-gray-800">{site.inspectionContactName}</span>
+                      </div>
+                    )}
                     <div className="flex justify-between">
                       <span className="text-gray-500">Triggered</span>
                       <span className="text-gray-800">{formatDate(site.triggerDate)}</span>

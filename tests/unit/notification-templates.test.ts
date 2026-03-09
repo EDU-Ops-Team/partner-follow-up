@@ -8,6 +8,8 @@ import {
   siteResolvedChat,
   schedulingReminderEmail,
   reportReminderEmail,
+  lidarCompletionReminderEmail,
+  inspectionReportReminderEmail,
 } from "../../convex/lib/templates";
 
 // Mock the Convex _generated import - templates use Doc<"sites"> type
@@ -36,6 +38,9 @@ type MockSite = {
   reportLinkNotified: boolean;
   reportReminderCount: number;
   schedulingReminderCount: number;
+  inspectionContactEmail?: string;
+  inspectionContactName?: string;
+  lidarReportingRequestDate?: string;
   bothScheduledNotified: boolean;
   resolved: boolean;
   resolvedAt?: number;
@@ -139,5 +144,35 @@ describe("Email templates", () => {
     expect(subject).toContain("Report Reminder");
     expect(subject).toContain("Reminder #2");
     expect(html).toContain("2026-04-01");
+  });
+
+  it("LiDAR completion reminder addresses original responsible party", () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { subject, html } = lidarCompletionReminderEmail(makeSite({ lidarJobStatus: "scheduled" }) as any);
+    expect(subject).toContain("LiDAR Completion Reminder");
+    expect(subject).toContain("123 Main Street");
+    expect(html).toContain("John Vendor");
+    expect(html).toContain("LiDAR scan");
+    expect(html).toContain("scheduled");
+  });
+
+  it("inspection report reminder addresses inspection contact", () => {
+    const { subject, html } = inspectionReportReminderEmail(makeSite({
+      reportDueDate: "2026-04-01",
+      reportReminderCount: 2,
+      inspectionContactName: "Steve Hehl",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    }) as any);
+    expect(subject).toContain("Inspection Report Reminder");
+    expect(subject).toContain("Reminder #3");
+    expect(html).toContain("Steve Hehl");
+    expect(html).toContain("past due");
+    expect(html).toContain("2026-04-01");
+  });
+
+  it("inspection report reminder falls back to 'Steve' when no contact name", () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { html } = inspectionReportReminderEmail(makeSite({ reportReminderCount: 0 }) as any);
+    expect(html).toContain("Hello Steve");
   });
 });

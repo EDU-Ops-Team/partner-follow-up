@@ -20,3 +20,7 @@ export const ADDRESS_MATCH_THRESHOLD = 0.85;
 /** Retry config */
 export const MAX_RETRIES = 3;
 export const RETRY_BASE_DELAY_MS = 1000;
+
+/** Inspection report contact (Steve Hehl at Worksmith) */
+export const INSPECTION_CONTACT_EMAIL = "shehl@worksmith.com";
+export const INSPECTION_CONTACT_NAME = "Steve Hehl";

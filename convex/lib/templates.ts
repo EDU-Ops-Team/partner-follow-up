@@ -98,6 +98,33 @@ export function schedulingReminderEmail(
   };
 }
 
+export function lidarCompletionReminderEmail(site: Site): { subject: string; html: string } {
+  return {
+    subject: `LiDAR Completion Reminder: ${site.siteAddress}`,
+    html: `
+      <p>Hello ${site.responsiblePartyName || ""},</p>
+      <p>This is a reminder that the LiDAR scan for <strong>${site.siteAddress}</strong> has not yet been completed.</p>
+      <p>Job Status: <strong>${site.lidarJobStatus ?? "Pending"}</strong></p>
+      <p>Please follow up to ensure the LiDAR scan is completed as soon as possible.</p>
+      <p>Thank you,<br>Permitting Scheduling Monitor</p>
+    `.trim(),
+  };
+}
+
+export function inspectionReportReminderEmail(site: Site): { subject: string; html: string } {
+  const contactName = site.inspectionContactName || "Steve";
+  return {
+    subject: `Inspection Report Reminder: ${site.siteAddress} (Reminder #${site.reportReminderCount + 1})`,
+    html: `
+      <p>Hello ${contactName},</p>
+      <p>This is a reminder that the Building Inspection report for <strong>${site.siteAddress}</strong> is past due and has not yet been received.</p>
+      ${site.reportDueDate ? `<p>Due Date: <strong>${site.reportDueDate}</strong></p>` : ""}
+      <p>Please provide the report as soon as possible.</p>
+      <p>Thank you,<br>Permitting Scheduling Monitor</p>
+    `.trim(),
+  };
+}
+
 export function reportReminderEmail(site: Site): { subject: string; html: string } {
   return {
     subject: `Report Reminder: ${site.siteAddress} (Reminder #${site.reportReminderCount + 1})`,

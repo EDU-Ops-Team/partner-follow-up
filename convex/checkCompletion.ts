@@ -2,7 +2,10 @@
 
 import { internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { REPORT_REMINDER_INTERVAL_DAYS } from "./lib/constants";
+import {
+  REPORT_REMINDER_INTERVAL_DAYS,
+  INSPECTION_CONTACT_EMAIL,
+} from "./lib/constants";
 import { fetchAirtableData } from "./services/airtableScraper";
 import { fetchInspectionData } from "./services/googleSheets";
 import { postToChat } from "./services/googleChat";
@@ -13,7 +16,8 @@ import {
   lidarCompleteChat,
   reportReceivedChat,
   reportReminderChat,
-  reportReminderEmail,
+  inspectionReportReminderEmail,
+  lidarCompletionReminderEmail,
   siteResolvedChat,
 } from "./lib/templates";
 import { logger } from "./lib/logger";
@@ -118,28 +122,53 @@ export const run = internalAction({
             anyNotified = true;
           }
 
-          // Report reminder if not received
-          if (!reportReceived && !anyNotified) {
-            await postToChat(chatWebhook, reportReminderChat(site));
-            const email = reportReminderEmail(site);
+          // Completion reminders — route to the right person
+          const reportOverdue = site.reportDueDate
+            ? new Date(site.reportDueDate).getTime() < now
+            : false;
+          const needsLidarReminder = !lidarComplete && !anyNotified;
+          const needsReportReminder = !reportReceived && !anyNotified && reportOverdue;
+          let sentReminder = false;
+
+          // LiDAR not complete → remind original responsible party
+          if (needsLidarReminder) {
+            const email = lidarCompletionReminderEmail(site);
             await sendEmail(site.responsiblePartyEmail, email.subject, email.html);
+            await ctx.runMutation(internal.auditLogs.create, {
+              siteId: site._id, action: "lidar_completion_reminder_sent",
+              details: { to: site.responsiblePartyEmail }, level: "info",
+            });
+            sentReminder = true;
+          }
+
+          // Report overdue → remind Steve (inspection contact)
+          if (needsReportReminder) {
+            const reportTo = site.inspectionContactEmail ?? INSPECTION_CONTACT_EMAIL;
+            await postToChat(chatWebhook, reportReminderChat(site));
+            const email = inspectionReportReminderEmail(site);
+            await sendEmail(reportTo, email.subject, email.html);
             await ctx.runMutation(internal.sites.update, {
               id: site._id,
               updates: {
                 reportReminderCount: site.reportReminderCount + 1,
                 lastOutreachDate: now,
-                nextCheckDate: addBusinessDays(new Date(now), REPORT_REMINDER_INTERVAL_DAYS).getTime(),
               },
             });
             await ctx.runMutation(internal.auditLogs.create, {
               siteId: site._id, action: "report_reminder_sent",
-              details: { reminderNumber: site.reportReminderCount + 1 }, level: "info",
+              details: { reminderNumber: site.reportReminderCount + 1, to: reportTo }, level: "info",
             });
-          } else if (!lidarComplete || !reportReceived) {
-            // Reschedule next check
+            sentReminder = true;
+          }
+
+          // Reschedule next check if anything is still pending
+          if (!lidarComplete || !reportReceived) {
             await ctx.runMutation(internal.sites.update, {
               id: site._id,
-              updates: { nextCheckDate: addBusinessDays(new Date(now), REPORT_REMINDER_INTERVAL_DAYS).getTime() },
+              updates: {
+                nextCheckDate: addBusinessDays(new Date(now), REPORT_REMINDER_INTERVAL_DAYS).getTime(),
+                ...(sentReminder ? { lastOutreachDate: now } : {}),
+              },
             });
           }
 

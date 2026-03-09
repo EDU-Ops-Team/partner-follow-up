@@ -7,6 +7,8 @@ export default defineSchema({
     normalizedAddress: v.string(),
     responsiblePartyEmail: v.string(),
     responsiblePartyName: v.optional(v.string()),
+    inspectionContactEmail: v.optional(v.string()),
+    inspectionContactName: v.optional(v.string()),
 
     phase: v.union(
       v.literal("scheduling"),
