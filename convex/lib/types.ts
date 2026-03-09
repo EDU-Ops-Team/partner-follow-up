@@ -23,6 +23,7 @@ export interface AirtableRow {
   scheduledDate?: string;
   scheduledTime?: string;
   jobStatus?: string;
+  reportingRequestDate?: string;
   notes?: string;
 }
 
