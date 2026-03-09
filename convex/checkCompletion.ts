@@ -9,7 +9,7 @@ import {
 import { fetchAirtableData } from "./services/airtableScraper";
 import { fetchInspectionData } from "./services/googleSheets";
 import { postToChat } from "./services/googleChat";
-import { sendEmail } from "./services/gmail";
+import { sendEmail, type ThreadingOptions } from "./services/gmail";
 import { matchAddress } from "./lib/addressNormalizer";
 import { addBusinessDays } from "./lib/businessDays";
 import {
@@ -58,6 +58,12 @@ export const run = internalAction({
 
       for (const site of dueSites) {
         try {
+          const threadOpts: ThreadingOptions | undefined = site.triggerThreadId ? {
+            threadId: site.triggerThreadId,
+            inReplyTo: site.triggerMessageId,
+            references: site.triggerMessageId,
+          } : undefined;
+
           let lidarComplete = site.lidarJobStatus === "complete";
           let reportReceived = site.reportReceived;
           let reportLink = site.reportLink;
@@ -140,7 +146,7 @@ export const run = internalAction({
           // LiDAR not complete → remind original responsible party
           if (needsLidarReminder) {
             const email = lidarCompletionReminderEmail(site);
-            await sendEmail(site.responsiblePartyEmail, email.subject, email.html);
+            await sendEmail(site.responsiblePartyEmail, email.subject, email.html, undefined, threadOpts);
             await ctx.runMutation(internal.auditLogs.create, {
               siteId: site._id, action: "lidar_completion_reminder_sent",
               details: { to: site.responsiblePartyEmail }, level: "info",
@@ -153,7 +159,7 @@ export const run = internalAction({
             const reportTo = site.inspectionContactEmail ?? INSPECTION_CONTACT_EMAIL;
             await postToChat(chatWebhook, reportReminderChat(site));
             const email = inspectionReportReminderEmail(site);
-            await sendEmail(reportTo, email.subject, email.html);
+            await sendEmail(reportTo, email.subject, email.html, undefined, threadOpts);
             await ctx.runMutation(internal.sites.update, {
               id: site._id,
               updates: {

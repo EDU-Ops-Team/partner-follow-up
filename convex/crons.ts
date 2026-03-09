@@ -12,4 +12,7 @@ crons.interval("check scheduling", { minutes: 30 }, internal.checkScheduling.run
 // Monitor LiDAR completion + report status every 30 minutes
 crons.interval("check completion", { minutes: 30 }, internal.checkCompletion.run);
 
+// Watch for replies in active email threads every 15 minutes
+crons.interval("check replies", { minutes: 15 }, internal.checkReplies.run);
+
 export default crons;

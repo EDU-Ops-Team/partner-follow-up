@@ -59,6 +59,8 @@ export const create = internalMutation({
     responsiblePartyEmail: v.string(),
     responsiblePartyName: v.optional(v.string()),
     triggerEmailId: v.optional(v.string()),
+    triggerThreadId: v.optional(v.string()),
+    triggerMessageId: v.optional(v.string()),
     triggerDate: v.number(),
     nextCheckDate: v.number(),
   },
@@ -115,6 +117,26 @@ export const adminCreate = mutation({
       bothScheduledNotified: false,
       resolved: false,
     });
+  },
+});
+
+export const getByThreadId = internalQuery({
+  args: { threadId: v.string() },
+  handler: async (ctx, { threadId }) => {
+    return ctx.db
+      .query("sites")
+      .withIndex("by_triggerThreadId", (q) => q.eq("triggerThreadId", threadId))
+      .first();
+  },
+});
+
+export const getActiveThreadedSites = internalQuery({
+  handler: async (ctx) => {
+    const all = await ctx.db
+      .query("sites")
+      .filter((q) => q.neq(q.field("phase"), "resolved"))
+      .collect();
+    return all.filter((s) => s.triggerThreadId);
   },
 });
 

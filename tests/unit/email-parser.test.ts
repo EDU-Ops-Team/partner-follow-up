@@ -18,6 +18,7 @@ Please schedule LiDAR and Building Inspection for the following site:
 Thanks,
 Zack`,
     date: new Date("2026-03-04"),
+    attachments: [],
     ...overrides,
   };
 }

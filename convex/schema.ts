@@ -17,8 +17,13 @@ export default defineSchema({
     ),
 
     triggerEmailId: v.optional(v.string()),
+    triggerThreadId: v.optional(v.string()),     // Gmail thread ID
+    triggerMessageId: v.optional(v.string()),    // RFC Message-ID header
     triggerDate: v.number(), // ms since epoch
     nextCheckDate: v.number(),
+
+    // Google Drive
+    driveFolderId: v.optional(v.string()),
 
     // LiDAR
     lidarScheduled: v.boolean(),
@@ -48,9 +53,21 @@ export default defineSchema({
   })
     .index("by_phase", ["phase"])
     .index("by_triggerEmailId", ["triggerEmailId"])
+    .index("by_triggerThreadId", ["triggerThreadId"])
     .index("by_normalizedAddress", ["normalizedAddress"])
     .index("by_nextCheckDate", ["nextCheckDate"])
     .index("by_resolved", ["resolved"]),
+
+  processedMessages: defineTable({
+    messageId: v.string(),
+    siteId: v.id("sites"),
+    threadId: v.string(),
+    processedAt: v.number(),
+    action: v.string(),
+    details: v.optional(v.any()),
+  })
+    .index("by_messageId", ["messageId"])
+    .index("by_siteId", ["siteId"]),
 
   auditLogs: defineTable({
     siteId: v.optional(v.id("sites")),

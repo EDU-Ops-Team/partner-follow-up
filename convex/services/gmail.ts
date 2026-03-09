@@ -2,7 +2,7 @@
 
 import { google, gmail_v1 } from "googleapis";
 import { logger } from "../lib/logger";
-import type { ParsedEmail } from "../lib/types";
+import type { ParsedEmail, AttachmentInfo } from "../lib/types";
 
 function getEnv(name: string): string {
   const v = process.env[name];
@@ -31,6 +31,25 @@ export async function getMessage(messageId: string): Promise<gmail_v1.Schema$Mes
   return res.data;
 }
 
+function extractAttachments(parts: gmail_v1.Schema$MessagePart[]): AttachmentInfo[] {
+  const attachments: AttachmentInfo[] = [];
+  for (const part of parts) {
+    if (part.filename && part.body?.attachmentId) {
+      attachments.push({
+        attachmentId: part.body.attachmentId,
+        filename: part.filename,
+        mimeType: part.mimeType ?? "application/octet-stream",
+        size: part.body.size ?? 0,
+      });
+    }
+    // Recurse into nested parts (multipart messages)
+    if (part.parts) {
+      attachments.push(...extractAttachments(part.parts));
+    }
+  }
+  return attachments;
+}
+
 export function parseGmailMessage(message: gmail_v1.Schema$Message): ParsedEmail {
   const headers = message.payload?.headers ?? [];
   const getHeader = (name: string): string =>
@@ -53,7 +72,22 @@ export function parseGmailMessage(message: gmail_v1.Schema$Message): ParsedEmail
     body = Buffer.from(message.payload.body.data, "base64url").toString("utf-8");
   }
 
-  return { messageId: message.id ?? "", from, to, cc, subject, body, date: dateStr ? new Date(dateStr) : new Date() };
+  const attachments = extractAttachments(parts);
+
+  return {
+    messageId: message.id ?? "",
+    threadId: message.threadId ?? undefined,
+    gmailMessageId: getHeader("Message-ID") || undefined,
+    inReplyTo: getHeader("In-Reply-To") || undefined,
+    references: getHeader("References") || undefined,
+    from,
+    to,
+    cc,
+    subject,
+    body,
+    date: dateStr ? new Date(dateStr) : new Date(),
+    attachments,
+  };
 }
 
 export async function markAsRead(messageId: string): Promise<void> {
@@ -61,18 +95,92 @@ export async function markAsRead(messageId: string): Promise<void> {
   await gmail.users.messages.modify({ userId: "me", id: messageId, requestBody: { removeLabelIds: ["UNREAD"] } });
 }
 
-export async function sendEmail(to: string, subject: string, htmlBody: string, cc?: string): Promise<void> {
+export async function removeLabel(messageId: string, labelId: string): Promise<void> {
+  const gmail = getClient();
+  await gmail.users.messages.modify({ userId: "me", id: messageId, requestBody: { removeLabelIds: [labelId] } });
+}
+
+/**
+ * Find a Gmail label ID by name. Returns null if not found.
+ */
+export async function getLabelId(labelName: string): Promise<string | null> {
+  const gmail = getClient();
+  const res = await gmail.users.labels.list({ userId: "me" });
+  const label = (res.data.labels ?? []).find(
+    (l) => l.name?.toLowerCase() === labelName.toLowerCase()
+  );
+  return label?.id ?? null;
+}
+
+export interface ThreadingOptions {
+  threadId?: string;
+  inReplyTo?: string;
+  references?: string;
+}
+
+/**
+ * Build the raw MIME message string (before base64 encoding).
+ * Exported for testing.
+ */
+export function buildMimeMessage(
+  from: string,
+  to: string,
+  subject: string,
+  htmlBody: string,
+  cc?: string,
+  threading?: ThreadingOptions
+): { mimeText: string; effectiveSubject: string } {
+  // Prefix subject with Re: for threaded replies if not already present
+  const effectiveSubject = threading?.inReplyTo && !subject.startsWith("Re: ")
+    ? `Re: ${subject}`
+    : subject;
+
+  const messageParts = [
+    `From: ${from}`, `To: ${to}`,
+    ...(cc ? [`Cc: ${cc}`] : []),
+    `Subject: ${effectiveSubject}`,
+    ...(threading?.inReplyTo ? [`In-Reply-To: ${threading.inReplyTo}`] : []),
+    ...(threading?.references ? [`References: ${threading.references}`] : []),
+    "Content-Type: text/html; charset=utf-8", "", htmlBody,
+  ];
+
+  return { mimeText: messageParts.join("\r\n"), effectiveSubject };
+}
+
+export async function sendEmail(
+  to: string,
+  subject: string,
+  htmlBody: string,
+  cc?: string,
+  threading?: ThreadingOptions
+): Promise<void> {
   const gmail = getClient();
   const sendAs = process.env.GMAIL_SEND_AS ?? "auth.permitting@trilogy.com";
 
-  const messageParts = [
-    `From: ${sendAs}`, `To: ${to}`,
-    ...(cc ? [`Cc: ${cc}`] : []),
-    `Subject: ${subject}`, "Content-Type: text/html; charset=utf-8", "", htmlBody,
-  ];
-  const rawMessage = Buffer.from(messageParts.join("\r\n")).toString("base64url");
-  await gmail.users.messages.send({ userId: "me", requestBody: { raw: rawMessage } });
-  logger.info("Email sent", { to, subject });
+  const { mimeText, effectiveSubject } = buildMimeMessage(sendAs, to, subject, htmlBody, cc, threading);
+  const rawMessage = Buffer.from(mimeText).toString("base64url");
+
+  const requestBody: { raw: string; threadId?: string } = { raw: rawMessage };
+  if (threading?.threadId) {
+    requestBody.threadId = threading.threadId;
+  }
+
+  await gmail.users.messages.send({ userId: "me", requestBody });
+  logger.info("Email sent", { to, subject: effectiveSubject, threaded: !!threading?.threadId });
+}
+
+export async function listThreadMessages(threadId: string): Promise<gmail_v1.Schema$Message[]> {
+  const gmail = getClient();
+  const res = await gmail.users.threads.get({ userId: "me", id: threadId, format: "full" });
+  return res.data.messages ?? [];
+}
+
+export async function getAttachment(messageId: string, attachmentId: string): Promise<Buffer> {
+  const gmail = getClient();
+  const res = await gmail.users.messages.attachments.get({
+    userId: "me", messageId, id: attachmentId,
+  });
+  return Buffer.from(res.data.data!, "base64url");
 }
 
 export async function verifyToken(): Promise<boolean> {
