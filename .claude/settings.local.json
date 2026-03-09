@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python:*)",
+      "WebSearch",
+      "WebFetch(domain:medium.com)",
+      "WebFetch(domain:github.com)",
+      "Bash(npx create-next-app@latest:*)",
+      "Bash(mkdir:*)",
+      "Bash(npm install:*)",
+      "Bash(npx drizzle-kit:*)",
+      "Bash(npx vitest:*)",
+      "Bash(npm:*)",
+      "Bash(rm:*)",
+      "Bash(openssl rand:*)",
+      "Bash(npx convex:*)"
+    ]
+  }
+}
