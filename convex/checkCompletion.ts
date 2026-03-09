@@ -63,14 +63,21 @@ export const run = internalAction({
           let reportLink = site.reportLink;
           let anyNotified = false;
 
-          // Check Airtable for LiDAR completion
-          if (!lidarComplete) {
+          // Check Airtable for LiDAR — always refresh status and data-as-of
+          {
             const match = matchAddress(site.siteAddress, airtableAddresses);
             if (match.matched && match.matchedAddress) {
               const row = airtableRows.find((r) => r.address === match.matchedAddress);
-              if (row?.jobStatus && ["complete", "completed", "done", "finished"].includes(row.jobStatus.toLowerCase())) {
-                lidarComplete = true;
-                await ctx.runMutation(internal.sites.update, { id: site._id, updates: { lidarJobStatus: "complete" } });
+              if (row) {
+                const updates: Record<string, unknown> = {};
+                if (row.jobStatus) updates.lidarJobStatus = row.jobStatus;
+                if (row.dataAsOf) updates.lidarDataAsOf = row.dataAsOf;
+                if (Object.keys(updates).length > 0) {
+                  await ctx.runMutation(internal.sites.update, { id: site._id, updates });
+                }
+                if (!lidarComplete && row.jobStatus && ["complete", "completed", "done", "finished"].includes(row.jobStatus.toLowerCase())) {
+                  lidarComplete = true;
+                }
               }
             }
           }

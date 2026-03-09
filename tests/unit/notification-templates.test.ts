@@ -40,7 +40,7 @@ type MockSite = {
   schedulingReminderCount: number;
   inspectionContactEmail?: string;
   inspectionContactName?: string;
-  lidarReportingRequestDate?: string;
+  lidarDataAsOf?: string;
   bothScheduledNotified: boolean;
   resolved: boolean;
   resolvedAt?: number;

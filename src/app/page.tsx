@@ -89,9 +89,9 @@ export default function Dashboard() {
                       </span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-gray-500">Report Request</span>
+                      <span className="text-gray-500">Data as of</span>
                       <span className="text-gray-800">
-                        {site.lidarReportingRequestDate ?? "—"}
+                        {site.lidarDataAsOf ?? "—"}
                       </span>
                     </div>
                   </div>

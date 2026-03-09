@@ -69,7 +69,7 @@ function mapRowToAirtable(row: Record<string, string>): AirtableRow {
     scheduledDate: find(["scheduled date", "scan date", "lidar date", "date"]),
     scheduledTime: find(["scheduled time", "scan time", "time"]),
     jobStatus: find(["status", "job status", "scan status"]),
-    reportingRequestDate: find(["reporting request", "report request", "reporting date"]),
+    dataAsOf: find(["data as of", "data as-of", "as of date", "as of"]),
     notes: find(["notes", "comments", "remarks"]),
   };
 }
