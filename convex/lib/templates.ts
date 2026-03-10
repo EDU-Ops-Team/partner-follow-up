@@ -139,6 +139,35 @@ export function statusUpdatedFromReplyChat(site: Site, field: string, newValue: 
   ].join("\n");
 }
 
+export function llmResponseSentChat(site: Site, recipientEmail: string, responseSummary: string): string {
+  return [
+    `*Auto-Reply Sent — ${site.siteAddress}*`,
+    "",
+    `To: ${recipientEmail}`,
+    `Response: ${responseSummary}`,
+  ].join("\n");
+}
+
+export function llmNeedsReviewChat(site: Site, senderEmail: string, vendorBody: string): string {
+  return [
+    `*⚠ Needs Human Review — ${site.siteAddress}*`,
+    "",
+    `A vendor reply could not be confidently answered by the agent:`,
+    `• From: ${senderEmail}`,
+    `• Message: ${vendorBody.length > 300 ? vendorBody.slice(0, 297) + "..." : vendorBody}`,
+    "",
+    `A holding response has been sent. Please review and follow up manually.`,
+  ].join("\n");
+}
+
+export function holdingResponseSentChat(site: Site, senderEmail: string): string {
+  return [
+    `*Holding Response Sent — ${site.siteAddress}*`,
+    "",
+    `A holding response was sent to ${senderEmail} while the team reviews their message.`,
+  ].join("\n");
+}
+
 // ── Email Templates ──
 
 export function schedulingReminderEmail(
@@ -156,7 +185,7 @@ export function schedulingReminderEmail(
         <li>Building Inspection Scheduled: ${site.inspectionScheduled ? "Yes" : "<strong>No</strong>"}</li>
       </ul>
       <p>Please schedule the outstanding items as soon as possible.</p>
-      <p>Thank you,<br>Permitting Scheduling Monitor</p>
+      <p>Thank you,<br>EDU Ops Team</p>
     `.trim(),
   };
 }
@@ -169,7 +198,7 @@ export function lidarCompletionReminderEmail(site: Site): { subject: string; htm
       <p>This is a reminder that the LiDAR scan for <strong>${site.siteAddress}</strong> has not yet been completed.</p>
       <p>Job Status: <strong>${site.lidarJobStatus ?? "Pending"}</strong></p>
       <p>Please follow up to ensure the LiDAR scan is completed as soon as possible.</p>
-      <p>Thank you,<br>Permitting Scheduling Monitor</p>
+      <p>Thank you,<br>EDU Ops Team</p>
     `.trim(),
   };
 }
@@ -183,7 +212,7 @@ export function inspectionReportReminderEmail(site: Site): { subject: string; ht
       <p>This is a reminder that the Building Inspection report for <strong>${site.siteAddress}</strong> is past due and has not yet been received.</p>
       ${site.reportDueDate ? `<p>Due Date: <strong>${site.reportDueDate}</strong></p>` : ""}
       <p>Please provide the report as soon as possible.</p>
-      <p>Thank you,<br>Permitting Scheduling Monitor</p>
+      <p>Thank you,<br>EDU Ops Team</p>
     `.trim(),
   };
 }
@@ -196,7 +225,7 @@ export function reportReminderEmail(site: Site): { subject: string; html: string
       <p>This is a reminder that the Building Inspection report for <strong>${site.siteAddress}</strong> has not yet been received.</p>
       ${site.reportDueDate ? `<p>Due Date: <strong>${site.reportDueDate}</strong></p>` : ""}
       <p>Please provide the report as soon as possible.</p>
-      <p>Thank you,<br>Permitting Scheduling Monitor</p>
+      <p>Thank you,<br>EDU Ops Team</p>
     `.trim(),
   };
 }
