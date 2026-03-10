@@ -77,6 +77,21 @@ export const run = internalAction({
               continue;
             }
 
+            // Skip internal team emails — don't respond to @trilogy.com or the trigger sender
+            const isInternalSender = senderEmail.toLowerCase().endsWith("@trilogy.com")
+              || senderEmail.toLowerCase().endsWith("@2hourlearning.com");
+            if (isInternalSender) {
+              await ctx.runMutation(internal.processedMessages.create, {
+                messageId: msg.id,
+                siteId: site._id,
+                threadId: site.triggerThreadId!,
+                processedAt: Date.now(),
+                action: "internal_message_skipped",
+                details: { from: senderEmail },
+              });
+              continue;
+            }
+
             // Post reply notification to chat
             await postToChat(chatWebhook, replyReceivedChat(site, senderEmail, intent.summary));
 
