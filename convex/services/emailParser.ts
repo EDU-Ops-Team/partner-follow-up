@@ -24,8 +24,30 @@ function extractAddress(text: string): string | null {
   return null;
 }
 
+/**
+ * Validate that an extracted string looks like a real street address.
+ * Rejects time strings, names, and other false positives.
+ */
+function isValidAddress(address: string): boolean {
+  // Must be at least 10 characters (e.g., "1 Main St")
+  if (address.length < 10) return false;
+
+  // Must start with a street number
+  if (!/^\d+\s/.test(address)) return false;
+
+  // Must contain a street-type word (not just a number + random words)
+  const streetTypes = /\b(street|st|avenue|ave|boulevard|blvd|drive|dr|lane|ln|road|rd|court|ct|place|pl|circle|cir|way|terrace|ter|highway|hwy|parkway|pkwy)\b/i;
+  if (!streetTypes.test(address)) return false;
+
+  // Reject if it looks like a time (e.g., "13 PM", "1:30 AM")
+  if (/^\d{1,2}\s*(am|pm)\b/i.test(address)) return false;
+
+  return true;
+}
+
 export function extractSiteInfo(email: ParsedEmail): ExtractedSiteInfo | null {
-  const address = extractAddress(email.body) ?? extractAddress(email.subject);
+  const rawAddress = extractAddress(email.body) ?? extractAddress(email.subject);
+  const address = rawAddress && isValidAddress(rawAddress) ? rawAddress : null;
   if (!address) {
     logger.warn("Could not extract address from email", { messageId: email.messageId, subject: email.subject });
     return null;
