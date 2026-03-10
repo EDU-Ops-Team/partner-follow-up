@@ -1,66 +1,32 @@
 "use node";
 
-import { parse } from "csv-parse/sync";
 import { logger } from "../lib/logger";
 import { withRetry } from "../lib/retry";
 import type { AirtableRow } from "../lib/types";
 
-function extractViewId(url: string): string {
-  const match = url.match(/\/(shr\w+)/);
-  if (!match) throw new Error(`Cannot extract view ID from URL: ${url}`);
-  return match[1];
+function getEnv(name: string): string {
+  const v = process.env[name];
+  if (!v) throw new Error(`Missing env var: ${name}`);
+  return v;
 }
 
-async function fetchAccessToken(viewId: string): Promise<string> {
-  const res = await fetch(`https://airtable.com/${viewId}`, {
-    headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" },
-  });
-  if (!res.ok) throw new Error(`Failed to fetch Airtable view: ${res.status}`);
-  const html = await res.text();
-  const tokenMatch = html.match(/"accessPolicy"\s*:\s*\{[^}]*"token"\s*:\s*"([^"]+)"/);
-  if (!tokenMatch) {
-    const altMatch = html.match(/accessToken['"]\s*:\s*['"]([^'"]+)/);
-    if (!altMatch) throw new Error("Could not extract access token from Airtable HTML");
-    return altMatch[1];
-  }
-  return tokenMatch[1];
+/**
+ * Extract the base ID (appXXX) and table ID (tblXXX) from an Airtable URL.
+ */
+function extractIds(url: string): { baseId: string; tableId: string } {
+  const baseMatch = url.match(/(app\w+)/);
+  const tableMatch = url.match(/(tbl\w+)/);
+  if (!baseMatch) throw new Error(`Cannot extract base ID from URL: ${url}`);
+  if (!tableMatch) throw new Error(`Cannot extract table ID from URL: ${url}`);
+  return { baseId: baseMatch[1], tableId: tableMatch[1] };
 }
 
-async function downloadCsv(viewId: string, accessToken: string): Promise<string> {
-  const res = await fetch(`https://airtable.com/v0.3/view/${viewId}/downloadCsv`, {
-    headers: {
-      "x-airtable-inter-service-client": "webClient",
-      "x-requested-with": "XMLHttpRequest",
-      "x-time-zone": "America/Chicago",
-      cookie: `__Host-airtable-session=${accessToken}`,
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-    },
-  });
-  if (!res.ok) throw new Error(`Failed to download CSV: ${res.status}`);
-  return res.text();
-}
-
-async function readSharedViewData(viewId: string, accessToken: string): Promise<AirtableRow[]> {
-  const res = await fetch(`https://airtable.com/v0.3/view/${viewId}/readSharedViewData`, {
-    headers: {
-      "x-airtable-inter-service-client": "webClient",
-      "x-requested-with": "XMLHttpRequest",
-      "x-time-zone": "America/Chicago",
-      cookie: `__Host-airtable-session=${accessToken}`,
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-    },
-  });
-  if (!res.ok) throw new Error(`Failed to read shared view data: ${res.status}`);
-  const data = await res.json();
-  return parseJsonResponse(data);
-}
-
-function mapRowToAirtable(row: Record<string, string>): AirtableRow {
-  const keys = Object.keys(row);
+function mapRowToAirtable(fields: Record<string, unknown>): AirtableRow {
+  const keys = Object.keys(fields);
   const find = (patterns: string[]): string | undefined => {
     for (const p of patterns) {
       const key = keys.find((k) => k.toLowerCase().includes(p.toLowerCase()));
-      if (key && row[key]) return row[key];
+      if (key && fields[key] != null) return String(fields[key]);
     }
     return undefined;
   };
@@ -74,51 +40,72 @@ function mapRowToAirtable(row: Record<string, string>): AirtableRow {
   };
 }
 
-function parseCsvRows(csv: string): AirtableRow[] {
-  const records = parse(csv, { columns: true, skip_empty_lines: true, trim: true }) as Record<string, string>[];
-  return records.map((row) => mapRowToAirtable(row));
+interface AirtableApiResponse {
+  records: Array<{
+    id: string;
+    fields: Record<string, unknown>;
+  }>;
+  offset?: string;
 }
 
-function parseJsonResponse(data: unknown): AirtableRow[] {
-  const obj = data as Record<string, unknown>;
-  const table = obj.data as Record<string, unknown> | undefined;
-  const rows = (table?.rows ?? obj.rows ?? []) as Record<string, unknown>[];
-  return rows.map((row) => {
-    const fields = (row.cellValuesByColumnId ?? row.fields ?? row) as Record<string, string>;
-    return mapRowToAirtable(fields);
-  });
-}
-
+/**
+ * Fetch all records from an Airtable table using the official REST API.
+ * Handles pagination automatically.
+ */
 export async function fetchAirtableData(viewUrl: string): Promise<AirtableRow[]> {
-  const viewId = extractViewId(viewUrl);
+  const { baseId, tableId } = extractIds(viewUrl);
+  const token = getEnv("AIRTABLE_API_TOKEN");
+
   return withRetry(async () => {
-    logger.info("Fetching Airtable access token", { viewId });
-    const token = await fetchAccessToken(viewId);
-    try {
-      const csv = await downloadCsv(viewId, token);
-      const rows = parseCsvRows(csv);
-      logger.info("Parsed Airtable CSV", { rowCount: rows.length });
-      return rows;
-    } catch (csvError) {
-      logger.warn("CSV download failed, trying JSON fallback", {
-        error: csvError instanceof Error ? csvError.message : String(csvError),
+    const allRows: AirtableRow[] = [];
+    let offset: string | undefined;
+
+    do {
+      const url = new URL(`https://api.airtable.com/v0/${baseId}/${tableId}`);
+      if (offset) url.searchParams.set("offset", offset);
+
+      const res = await fetch(url.toString(), {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
       });
-      const rows = await readSharedViewData(viewId, token);
-      logger.info("Parsed Airtable JSON", { rowCount: rows.length });
-      return rows;
-    }
-  }, { maxRetries: 2, context: "airtable-scrape" });
+
+      if (!res.ok) {
+        const body = await res.text();
+        throw new Error(`Airtable API error: ${res.status} - ${body}`);
+      }
+
+      const data: AirtableApiResponse = await res.json();
+      // Debug: log field names from first record and first few addresses
+      if (allRows.length === 0 && data.records.length > 0) {
+        logger.info("Airtable field names", { fields: Object.keys(data.records[0].fields) });
+        const sampleAddresses = data.records.slice(0, 5).map((r) => {
+          const mapped = mapRowToAirtable(r.fields);
+          return { address: mapped.address, rawFields: Object.entries(r.fields).slice(0, 6) };
+        });
+        logger.info("Airtable sample rows", { samples: sampleAddresses });
+      }
+      const rows = data.records.map((r) => mapRowToAirtable(r.fields));
+      allRows.push(...rows);
+      offset = data.offset;
+    } while (offset);
+
+    logger.info("Fetched Airtable data via API", { rowCount: allRows.length, baseId, tableId });
+    return allRows;
+  }, { maxRetries: 2, context: "airtable-api" });
 }
 
 export async function checkAirtableHealth(viewUrl: string): Promise<boolean> {
   try {
-    const viewId = extractViewId(viewUrl);
-    const res = await fetch(`https://airtable.com/${viewId}`, {
-      method: "HEAD",
-      headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" },
+    const { baseId, tableId } = extractIds(viewUrl);
+    const token = process.env.AIRTABLE_API_TOKEN;
+    if (!token) return false;
+
+    const res = await fetch(`https://api.airtable.com/v0/${baseId}/${tableId}?maxRecords=1`, {
+      headers: { Authorization: `Bearer ${token}` },
     });
     return res.ok;
   } catch { return false; }
 }
 
-export { extractViewId, parseCsvRows };
+export { extractIds };

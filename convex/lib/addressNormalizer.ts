@@ -40,12 +40,43 @@ export function matchAddress(
 
   for (const candidate of candidates) {
     const normalizedCandidate = normalizeAddress(candidate);
+
+    // Exact match
     if (normalizedTarget === normalizedCandidate) {
       return { matched: true, confidence: 1.0, matchedAddress: candidate };
     }
+
+    // Prefix/substring match: if the shorter address starts the longer one,
+    // this handles cases where one source has "620 5th ave" and the other has
+    // "620 5th ave s kirkland wa king county usa 98033"
+    if (normalizedCandidate.startsWith(normalizedTarget) || normalizedTarget.startsWith(normalizedCandidate)) {
+      const shorter = normalizedTarget.length <= normalizedCandidate.length ? normalizedTarget : normalizedCandidate;
+      const longer = normalizedTarget.length > normalizedCandidate.length ? normalizedTarget : normalizedCandidate;
+      // High confidence if the shorter string covers a significant portion
+      const coverage = shorter.length / longer.length;
+      const prefixConfidence = 0.90 + (coverage * 0.10); // 0.90 - 1.0
+      if (prefixConfidence > bestMatch.confidence) {
+        bestMatch = { matched: true, confidence: prefixConfidence, matchedAddress: candidate };
+      }
+      continue;
+    }
+
+    // Fuzzy match on the full strings
     const sim = similarity(normalizedTarget, normalizedCandidate);
     if (sim > bestMatch.confidence) {
       bestMatch = { matched: sim >= threshold, confidence: sim, matchedAddress: candidate };
+    }
+
+    // Also try fuzzy match on just the street portion (before first comma
+    // in the original address, then normalized) to handle
+    // "620 5th ave" vs "620 5th ave s, kirkland, wa..."
+    const targetStreet = normalizeAddress(target.split(",")[0]);
+    const candidateStreet = normalizeAddress(candidate.split(",")[0]);
+    if (targetStreet && candidateStreet) {
+      const streetSim = similarity(targetStreet, candidateStreet);
+      if (streetSim >= threshold && streetSim > bestMatch.confidence) {
+        bestMatch = { matched: true, confidence: streetSim, matchedAddress: candidate };
+      }
     }
   }
   return bestMatch;
