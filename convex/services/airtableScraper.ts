@@ -76,15 +76,6 @@ export async function fetchAirtableData(viewUrl: string): Promise<AirtableRow[]>
       }
 
       const data: AirtableApiResponse = await res.json();
-      // Debug: log field names from first record and first few addresses
-      if (allRows.length === 0 && data.records.length > 0) {
-        logger.info("Airtable field names", { fields: Object.keys(data.records[0].fields) });
-        const sampleAddresses = data.records.slice(0, 5).map((r) => {
-          const mapped = mapRowToAirtable(r.fields);
-          return { address: mapped.address, rawFields: Object.entries(r.fields).slice(0, 6) };
-        });
-        logger.info("Airtable sample rows", { samples: sampleAddresses });
-      }
       const rows = data.records.map((r) => mapRowToAirtable(r.fields));
       allRows.push(...rows);
       offset = data.offset;
