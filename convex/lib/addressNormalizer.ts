@@ -30,6 +30,26 @@ export interface MatchResult {
   matchedAddress?: string;
 }
 
+/**
+ * Extract the leading street number from a normalized address.
+ * Returns null if no number is found.
+ */
+function extractStreetNumber(normalized: string): string | null {
+  const match = normalized.match(/^(\d+[\-\d]*)/);
+  return match ? match[1] : null;
+}
+
+/**
+ * Check if two addresses have the same street number.
+ * If either has no number, returns true (don't block on missing data).
+ */
+function streetNumbersMatch(a: string, b: string): boolean {
+  const numA = extractStreetNumber(a);
+  const numB = extractStreetNumber(b);
+  if (!numA || !numB) return true; // can't verify, allow match
+  return numA === numB;
+}
+
 export function matchAddress(
   target: string,
   candidates: string[],
@@ -40,6 +60,11 @@ export function matchAddress(
 
   for (const candidate of candidates) {
     const normalizedCandidate = normalizeAddress(candidate);
+
+    // Street numbers must match — reject "835 oak creek dr" vs "995 oak creek dr"
+    if (!streetNumbersMatch(normalizedTarget, normalizedCandidate)) {
+      continue;
+    }
 
     // Exact match
     if (normalizedTarget === normalizedCandidate) {
@@ -52,9 +77,8 @@ export function matchAddress(
     if (normalizedCandidate.startsWith(normalizedTarget) || normalizedTarget.startsWith(normalizedCandidate)) {
       const shorter = normalizedTarget.length <= normalizedCandidate.length ? normalizedTarget : normalizedCandidate;
       const longer = normalizedTarget.length > normalizedCandidate.length ? normalizedTarget : normalizedCandidate;
-      // High confidence if the shorter string covers a significant portion
       const coverage = shorter.length / longer.length;
-      const prefixConfidence = 0.90 + (coverage * 0.10); // 0.90 - 1.0
+      const prefixConfidence = 0.90 + (coverage * 0.10);
       if (prefixConfidence > bestMatch.confidence) {
         bestMatch = { matched: true, confidence: prefixConfidence, matchedAddress: candidate };
       }
