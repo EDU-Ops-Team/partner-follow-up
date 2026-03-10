@@ -32,9 +32,9 @@ function mapRowToAirtable(fields: Record<string, unknown>): AirtableRow {
   };
   return {
     address: find(["capture address", "address", "site", "location", "property", "project name"]) ?? "",
-    scheduledDate: find(["scheduled date", "scan date", "lidar date", "date"]),
-    scheduledTime: find(["scheduled time", "scan time", "time"]),
-    jobStatus: find(["status", "job status", "scan status"]),
+    scheduledDate: find(["job scheduled date", "scheduled date", "scan date", "lidar date"]),
+    scheduledTime: find(["scheduled time", "scan time"]),
+    jobStatus: find(["job status", "scan status"]),
     dataAsOf: find(["reporting request date", "data as of", "data as-of", "as of date", "as of"]),
     notes: find(["notes", "comments", "remarks"]),
     modelUrl: find(["model url", "matterport", "model link"]),

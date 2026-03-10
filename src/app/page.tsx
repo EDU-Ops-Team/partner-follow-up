@@ -77,9 +77,9 @@ export default function Dashboard() {
                       </span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-gray-500">Job Scheduled</span>
-                      <span className="text-gray-800">
-                        {formatDatetime(site.lidarScheduledDatetime) ?? "—"}
+                      <span className="text-gray-500">Job Scheduled Date</span>
+                      <span className={site.lidarScheduledDatetime ? "text-gray-800" : "text-gray-400 italic"}>
+                        {formatDatetime(site.lidarScheduledDatetime) ?? "empty"}
                       </span>
                     </div>
                     <div className="flex justify-between">

@@ -65,22 +65,27 @@ export const run = internalAction({
             const match = matchAddress(site.siteAddress, airtableAddresses);
             if (match.matched && match.matchedAddress) {
               const row = airtableRows.find((r) => r.address === match.matchedAddress);
-              if (row?.scheduledDate) {
-                lidarScheduled = true;
+              if (row) {
+                const updates: Record<string, unknown> = {
+                  fullAddress: match.matchedAddress,
+                };
+                if (row.jobStatus) updates.lidarJobStatus = row.jobStatus;
+                if (row.dataAsOf) updates.lidarDataAsOf = row.dataAsOf;
+                if (row.modelUrl) updates.lidarModelUrl = row.modelUrl;
+
+                if (row.scheduledDate) {
+                  lidarScheduled = true;
+                  updates.lidarScheduled = true;
+                  updates.lidarScheduledDatetime = new Date(row.scheduledDate).getTime();
+                  if (!row.jobStatus) updates.lidarJobStatus = "scheduled";
+                }
+
                 await ctx.runMutation(internal.sites.update, {
-                  id: site._id,
-                  updates: {
-                    lidarScheduled: true,
-                    lidarScheduledDatetime: new Date(row.scheduledDate).getTime(),
-                    lidarJobStatus: row.jobStatus ?? "scheduled",
-                    lidarDataAsOf: row.dataAsOf,
-                    ...(row.modelUrl ? { lidarModelUrl: row.modelUrl } : {}),
-                    fullAddress: match.matchedAddress,
-                  },
+                  id: site._id, updates,
                 });
                 await ctx.runMutation(internal.auditLogs.create, {
                   siteId: site._id, action: "lidar_check",
-                  details: { found: true, scheduledDate: row.scheduledDate, confidence: match.confidence },
+                  details: { found: true, scheduledDate: row.scheduledDate, jobStatus: row.jobStatus, confidence: match.confidence },
                   level: "info",
                 });
               }
