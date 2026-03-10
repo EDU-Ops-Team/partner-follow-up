@@ -79,6 +79,7 @@ export const run = internalAction({
                 if (row.jobStatus) updates.lidarJobStatus = row.jobStatus;
                 if (row.dataAsOf) updates.lidarDataAsOf = row.dataAsOf;
                 if (row.modelUrl) updates.lidarModelUrl = row.modelUrl;
+                if (match.matchedAddress) updates.fullAddress = match.matchedAddress;
                 if (Object.keys(updates).length > 0) {
                   await ctx.runMutation(internal.sites.update, { id: site._id, updates });
                 }

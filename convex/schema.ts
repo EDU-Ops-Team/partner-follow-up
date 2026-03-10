@@ -4,6 +4,7 @@ import { v } from "convex/values";
 export default defineSchema({
   sites: defineTable({
     siteAddress: v.string(),
+    fullAddress: v.optional(v.string()),       // Full address from Airtable match
     normalizedAddress: v.string(),
     responsiblePartyEmail: v.string(),
     responsiblePartyName: v.optional(v.string()),

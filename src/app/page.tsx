@@ -52,7 +52,7 @@ export default function Dashboard() {
               {/* Header row */}
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-3">
-                  <h2 className="text-lg font-semibold">{site.siteAddress}</h2>
+                  <h2 className="text-lg font-semibold">{site.fullAddress ?? site.siteAddress}</h2>
                   <span className={phaseBadge(site.phase)}>{site.phase}</span>
                 </div>
                 <div className="text-sm text-gray-500">
