@@ -42,6 +42,9 @@ export default function Dashboard() {
   return (
     <main className="max-w-7xl mx-auto px-4 py-8">
       <h1 className="text-2xl font-bold mb-6">Vendor Follow Up</h1>
+      <div className="text-xs text-gray-400 mb-2">
+        Sites: {siteList?.length ?? "loading"} | URL: {process.env.NEXT_PUBLIC_CONVEX_URL} | Build: {new Date().toISOString().slice(0, 16)}
+      </div>
 
       {siteList === undefined ? (
         <div className="text-gray-400 py-8 text-center">Loading...</div>
