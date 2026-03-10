@@ -30,6 +30,7 @@ export default defineSchema({
     lidarScheduledDatetime: v.optional(v.number()),
     lidarJobStatus: v.optional(v.string()),
     lidarDataAsOf: v.optional(v.string()),
+    lidarModelUrl: v.optional(v.string()),
     lidarCompleteNotified: v.boolean(),
 
     // Inspection

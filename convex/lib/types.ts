@@ -45,6 +45,7 @@ export interface AirtableRow {
   jobStatus?: string;
   dataAsOf?: string;
   notes?: string;
+  modelUrl?: string;
 }
 
 export interface InspectionRow {

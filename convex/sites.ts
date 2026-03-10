@@ -150,3 +150,10 @@ export const adminUpdate = mutation({
     return ctx.db.get(id);
   },
 });
+
+export const adminDelete = mutation({
+  args: { id: v.id("sites") },
+  handler: async (ctx, { id }) => {
+    await ctx.db.delete(id);
+  },
+});

@@ -74,6 +74,7 @@ export const run = internalAction({
                     lidarScheduledDatetime: new Date(row.scheduledDate).getTime(),
                     lidarJobStatus: row.jobStatus ?? "scheduled",
                     lidarDataAsOf: row.dataAsOf,
+                    ...(row.modelUrl ? { lidarModelUrl: row.modelUrl } : {}),
                   },
                 });
                 await ctx.runMutation(internal.auditLogs.create, {
