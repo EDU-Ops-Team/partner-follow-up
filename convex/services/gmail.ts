@@ -158,19 +158,19 @@ export async function sendEmail(
   console.log(`[EMAIL DISABLED] Would have sent to: ${to}, subject: ${subject}`);
   return;
 
-  const gmail = getClient();
-  const sendAs = process.env.GMAIL_SEND_AS ?? "auth.permitting@trilogy.com";
-
-  const { mimeText, effectiveSubject } = buildMimeMessage(sendAs, to, subject, htmlBody, cc, threading);
-  const rawMessage = Buffer.from(mimeText).toString("base64url");
-
-  const requestBody: { raw: string; threadId?: string } = { raw: rawMessage };
-  if (threading && threading.threadId) {
-    requestBody.threadId = threading.threadId;
-  }
-
-  await gmail.users.messages.send({ userId: "me", requestBody });
-  logger.info("Email sent", { to, subject: effectiveSubject, threaded: !!threading?.threadId });
+  // const gmail = getClient();
+  // const sendAs = process.env.GMAIL_SEND_AS ?? "auth.permitting@trilogy.com";
+  //
+  // const { mimeText, effectiveSubject } = buildMimeMessage(sendAs, to, subject, htmlBody, cc, threading);
+  // const rawMessage = Buffer.from(mimeText).toString("base64url");
+  //
+  // const requestBody: { raw: string; threadId?: string } = { raw: rawMessage };
+  // if (threading?.threadId) {
+  //   requestBody.threadId = threading.threadId;
+  // }
+  //
+  // await gmail.users.messages.send({ userId: "me", requestBody });
+  // logger.info("Email sent", { to, subject: effectiveSubject, threaded: !!threading?.threadId });
 }
 
 export async function listThreadMessages(threadId: string): Promise<gmail_v1.Schema$Message[]> {
