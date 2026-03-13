@@ -4,6 +4,10 @@ import { logger } from "../lib/logger";
 import { withRetry } from "../lib/retry";
 
 export async function postToChat(webhookUrl: string, text: string): Promise<void> {
+  // TEMPORARY: Chat notifications disabled during reply system redevelopment
+  console.log(`[CHAT DISABLED] Would have posted: ${text.slice(0, 200)}`);
+  return;
+
   await withRetry(async () => {
     const res = await fetch(webhookUrl, {
       method: "POST",

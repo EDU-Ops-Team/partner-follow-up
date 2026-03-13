@@ -154,6 +154,10 @@ export async function sendEmail(
   cc?: string,
   threading?: ThreadingOptions
 ): Promise<void> {
+  // TEMPORARY: All outbound email disabled during reply system redevelopment
+  console.log(`[EMAIL DISABLED] Would have sent to: ${to}, subject: ${subject}`);
+  return;
+
   const gmail = getClient();
   const sendAs = process.env.GMAIL_SEND_AS ?? "auth.permitting@trilogy.com";
 
