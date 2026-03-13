@@ -165,7 +165,7 @@ export async function sendEmail(
   const rawMessage = Buffer.from(mimeText).toString("base64url");
 
   const requestBody: { raw: string; threadId?: string } = { raw: rawMessage };
-  if (threading?.threadId) {
+  if (threading && threading.threadId) {
     requestBody.threadId = threading.threadId;
   }
 
