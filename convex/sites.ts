@@ -29,6 +29,23 @@ export const getById = query({
 
 // ── Internal Queries (for actions) ──
 
+export const getByIdInternal = internalQuery({
+  args: { id: v.id("sites") },
+  handler: async (ctx, { id }) => {
+    return ctx.db.get(id);
+  },
+});
+
+export const listAllAddresses = internalQuery({
+  handler: async (ctx) => {
+    const all = await ctx.db.query("sites").collect();
+    return all.map((s) => ({
+      id: s._id,
+      normalizedAddress: s.normalizedAddress,
+    }));
+  },
+});
+
 export const getByTriggerEmailId = internalQuery({
   args: { emailId: v.string() },
   handler: async (ctx, { emailId }) => {

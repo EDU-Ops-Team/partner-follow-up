@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
 import { ConvexClientProvider } from "./ConvexClientProvider";
+import { NavWrapper } from "./NavWrapper";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Vendor Follow Up",
-  description: "Automated LiDAR & Building Inspection scheduling follow-up",
+  title: "EDU Ops Agent",
+  description: "Email agent for Alpha Schools EDU Ops",
 };
 
 export default function RootLayout({
@@ -15,7 +16,10 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="bg-gray-50 text-gray-900 antialiased">
-        <ConvexClientProvider>{children}</ConvexClientProvider>
+        <ConvexClientProvider>
+          <NavWrapper />
+          {children}
+        </ConvexClientProvider>
       </body>
     </html>
   );

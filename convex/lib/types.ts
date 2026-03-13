@@ -62,3 +62,82 @@ export interface CronResult {
   processed: number;
   errors: string[];
 }
+
+// ── Email Agent Types ──
+
+export type ClassificationType =
+  | "vendor_scheduling"
+  | "vendor_completion"
+  | "vendor_question"
+  | "vendor_invoice"
+  | "government_permit"
+  | "government_zoning"
+  | "inspection_report"
+  | "internal_fyi"
+  | "internal_action_needed"
+  | "auto_reply"
+  | "unknown";
+
+export type ClassificationMethod = "rule" | "llm";
+
+export type EmailThreadState =
+  | "active"
+  | "waiting_vendor"
+  | "waiting_human"
+  | "escalated"
+  | "resolved"
+  | "archived";
+
+export type ClassificationStatus =
+  | "classified"
+  | "action_pending"
+  | "action_taken"
+  | "escalated"
+  | "archived";
+
+export type DraftStatus =
+  | "pending"
+  | "approved"
+  | "edited"
+  | "rejected"
+  | "auto_sent"
+  | "expired";
+
+export type GateMode = "supervised" | "graduated" | "autonomous";
+
+export type VendorCategory =
+  | "lidar"
+  | "inspection"
+  | "permitting"
+  | "zoning"
+  | "construction"
+  | "it_cabling"
+  | "architecture"
+  | "legal"
+  | "insurance"
+  | "other";
+
+export type JurisdictionType = "city" | "county" | "state" | "federal";
+
+export type ReviewerRole = "admin" | "reviewer";
+
+export interface ExtractedEntities {
+  siteAddress?: string;
+  vendorName?: string;
+  dates?: string[];
+  permitNumber?: string;
+  attachmentTypes?: string[];
+}
+
+export interface ClassificationResult {
+  classificationType: ClassificationType;
+  classificationMethod: ClassificationMethod;
+  confidence: number;
+  extractedEntities: ExtractedEntities;
+}
+
+export interface ContextResolution {
+  matchedSiteIds: string[];
+  matchedVendorId?: string;
+  extractedEntities: ExtractedEntities;
+}

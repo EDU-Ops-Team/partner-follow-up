@@ -31,3 +31,37 @@ export const GOOGLE_DRIVE_PARENT_FOLDER_ID = "1RqwLyx0duTeWQPJWu7-HOpfQNlbe5jzQ"
 /** Inspection report contact (Steve Hehl at Worksmith) */
 export const INSPECTION_CONTACT_EMAIL = "shehl@worksmith.com";
 export const INSPECTION_CONTACT_NAME = "Steve Hehl";
+
+// ── Email Agent Constants ──
+
+/** Agent email address */
+export const AGENT_EMAIL = "edu.ops@trilogy.com";
+
+/** Gmail query for agent inbound */
+export const AGENT_GMAIL_QUERY = "is:unread";
+
+/** Agent email signature */
+export const AGENT_SIGNATURE = "EDU Ops Team";
+
+/** Classification confidence threshold for rule-based (above this = no LLM needed) */
+export const CLASSIFICATION_CONFIDENCE_THRESHOLD = 0.9;
+
+/** Internal email domains (classified as internal, not processed for replies) */
+export const INTERNAL_DOMAINS = ["trilogy.com", "2hourlearning.com", "alpha.school"];
+
+/** Gate mechanism thresholds */
+export const GATE_PASS_THRESHOLD = 0.98;
+export const GATE_GRADUATION_PASS_RATE = 0.95;
+export const GATE_MIN_REVIEWS = 20;
+export const GATE_ROLLING_WINDOW_DAYS = 30;
+export const GATE_REGRESSION_THRESHOLD = 0.90;
+export const GATE_SAMPLING_RATE = 0.2;
+
+/** Follow-up SLA (business days) */
+export const FOLLOWUP_INTERVAL_DAYS = 2;
+
+/** Max messages to fetch per classification poll */
+export const AGENT_POLL_BATCH_SIZE = 50;
+
+/** Body preview length for classifications */
+export const BODY_PREVIEW_LENGTH = 500;
