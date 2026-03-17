@@ -14,6 +14,69 @@ const vendorCategoryValidator = v.union(
   v.literal("other")
 );
 
+const VALID_VENDOR_CATEGORIES = new Set([
+  "lidar",
+  "inspection",
+  "permitting",
+  "zoning",
+  "construction",
+  "it_cabling",
+  "architecture",
+  "legal",
+  "insurance",
+  "other",
+] as const);
+
+function normalizeOptionalString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function normalizeOptionalNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function normalizeContacts(value: unknown): Array<{ email: string; isPrimary: boolean; name?: string }> {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const contacts = value
+    .map((contact) => {
+      if (!contact || typeof contact !== "object") {
+        return null;
+      }
+
+      const email = typeof contact.email === "string" ? contact.email.trim() : "";
+      if (!email) {
+        return null;
+      }
+
+      const normalized = {
+        email,
+        isPrimary: contact.isPrimary === true,
+      } as { email: string; isPrimary: boolean; name?: string };
+
+      const name = normalizeOptionalString(contact.name);
+      if (name) {
+        normalized.name = name;
+      }
+      return normalized;
+    })
+    .filter((contact): contact is { email: string; isPrimary: boolean; name?: string } => contact !== null);
+
+  if (contacts.length > 0 && !contacts.some((contact) => contact.isPrimary)) {
+    contacts[0].isPrimary = true;
+  }
+
+  return contacts;
+}
+
+function normalizeCategory(value: unknown): (typeof VALID_VENDOR_CATEGORIES extends Set<infer T> ? T : never) {
+  return typeof value === "string" && VALID_VENDOR_CATEGORIES.has(value as never)
+    ? (value as (typeof VALID_VENDOR_CATEGORIES extends Set<infer T> ? T : never))
+    : "other";
+}
+
 // ── Public Queries (for dashboard) ──
 
 export const list = query({
@@ -110,24 +173,22 @@ export const update = mutation({
       throw new Error("Vendor not found");
     }
 
-    const updates: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(fields)) {
-      if (value !== undefined) updates[key] = value;
-    }
+    const replacement = {
+      name: normalizeOptionalString(fields.name) ?? normalizeOptionalString(existing.name) ?? "Unknown partner",
+      role: normalizeOptionalString(fields.role) ?? normalizeOptionalString(existing.role) ?? "Unknown role",
+      category: normalizeCategory(fields.category ?? existing.category),
+      contacts: normalizeContacts(fields.contacts ?? existing.contacts),
+      triggerConditions: normalizeOptionalString(fields.triggerConditions ?? existing.triggerConditions),
+      geographicScope: normalizeOptionalString(fields.geographicScope ?? existing.geographicScope),
+      defaultSLADays: normalizeOptionalNumber(fields.defaultSLADays ?? existing.defaultSLADays),
+      activeSiteCount: typeof existing.activeSiteCount === "number" && Number.isFinite(existing.activeSiteCount)
+        ? existing.activeSiteCount
+        : 0,
+      status: fields.status ?? (existing.status === "inactive" ? "inactive" : "active"),
+      notes: normalizeOptionalString(fields.notes ?? existing.notes),
+    };
 
-    // Older vendor records can be missing fields that are now required by schema.
-    // Normalize them during any update so edits don't fail on legacy documents.
-    if (existing.activeSiteCount === undefined) {
-      updates.activeSiteCount = 0;
-    }
-    if (existing.status === undefined) {
-      updates.status = "active";
-    }
-    if (existing.contacts === undefined) {
-      updates.contacts = [];
-    }
-
-    await ctx.db.patch(id, updates);
+    await ctx.db.replace(id, replacement);
     return ctx.db.get(id);
   },
 });
