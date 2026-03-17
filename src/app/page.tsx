@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
-import { useQuery, useMutation } from "convex/react";
+import { useEffect, useState } from "react";
+import { useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
-import type { Id } from "../../convex/_generated/dataModel";
+import type { Doc, Id } from "../../convex/_generated/dataModel";
 
 // ── Badges ──
 
@@ -125,13 +125,46 @@ function extractSenderName(from: string): string {
 // ── Site Card Expansion ──
 
 function SiteExpansion({ siteId }: { siteId: Id<"sites"> }) {
-  const classifications = useQuery(api.emailClassifications.listBySiteId, { siteId });
-  const threads = useQuery(api.emailThreads.listBySiteId, { siteId });
-  const drafts = useQuery(api.draftEmails.listBySiteId, { siteId });
+  const [data, setData] = useState<{
+    classifications: Doc<"emailClassifications">[];
+    threads: Doc<"emailThreads">[];
+    drafts: Doc<"draftEmails">[];
+  } | null>(null);
 
-  const loading = classifications === undefined || threads === undefined || drafts === undefined;
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const res = await fetch(`/api/dashboard/site-activity/${encodeURIComponent(String(siteId))}`, { cache: "no-store" });
+        if (!res.ok) throw new Error(`Request failed (${res.status})`);
+        const payload = (await res.json()) as {
+          classifications: Doc<"emailClassifications">[];
+          threads: Doc<"emailThreads">[];
+          drafts: Doc<"draftEmails">[];
+        };
+        if (active) setData(payload);
+      } catch (err) {
+        if (active) setError(err instanceof Error ? err.message : "Failed to load activity");
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [siteId]);
+
+  const classifications = data?.classifications ?? [];
+  const threads = data?.threads ?? [];
+  const drafts = data?.drafts ?? [];
+
+  const loading = data === null && !error;
   if (loading) {
     return <div className="text-gray-400 text-sm py-3">Loading activity...</div>;
+  }
+
+  if (error) {
+    return <div className="text-red-600 text-sm py-3">{error}</div>;
   }
 
   const hasContent = classifications.length > 0 || threads.length > 0 || drafts.length > 0;
@@ -238,10 +271,6 @@ function SiteCard({ site }: { site: {
 } }) {
   const [expanded, setExpanded] = useState(false);
 
-  // Count linked messages for badge
-  const classifications = useQuery(api.emailClassifications.listBySiteId, { siteId: site._id });
-  const messageCount = classifications?.length ?? 0;
-
   return (
     <div className="bg-white border border-gray-200 rounded-lg hover:shadow-sm">
       <button
@@ -252,11 +281,6 @@ function SiteCard({ site }: { site: {
           <div className="flex items-center gap-3">
             <h2 className="text-lg font-semibold">{site.fullAddress ?? site.siteAddress}</h2>
             <span className={phaseBadge(site.phase)}>{site.phase}</span>
-            {messageCount > 0 && (
-              <span className="inline-flex items-center justify-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700">
-                {messageCount} msg{messageCount !== 1 ? "s" : ""}
-              </span>
-            )}
             <span className="text-gray-400 text-sm">{expanded ? "\u25B2" : "\u25BC"}</span>
           </div>
           <div className="text-sm text-gray-500">
@@ -377,14 +401,35 @@ function SitesView() {
 // ── Inbound Feed (unmatched only) ──
 
 function InboundFeed() {
-  const classifications = useQuery(api.emailClassifications.listUnmatched, { limit: 100 });
-  const archiveMutation = useMutation(api.emailClassifications.archive);
+  const [classifications, setClassifications] = useState<Doc<"emailClassifications">[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  if (classifications === undefined) {
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const res = await fetch("/api/dashboard/inbound?limit=100", { cache: "no-store" });
+        if (!res.ok) throw new Error(`Request failed (${res.status})`);
+        const payload = (await res.json()) as { classifications: Doc<"emailClassifications">[] };
+        if (active) setClassifications(payload.classifications);
+      } catch (err) {
+        if (active) setError(err instanceof Error ? err.message : "Failed to load inbound");
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  if (classifications === null && !error) {
     return <div className="text-gray-400 py-8 text-center">Loading inbound...</div>;
   }
 
-  if (classifications.length === 0) {
+  if (error) {
+    return <div className="text-red-600 py-8 text-center">{error}</div>;
+  }
+
+  if ((classifications ?? []).length === 0) {
     return (
       <div className="bg-white border border-gray-200 rounded-lg px-4 py-8 text-center text-gray-400">
         No unmatched inbound emails
@@ -394,7 +439,7 @@ function InboundFeed() {
 
   return (
     <div className="space-y-2">
-      {classifications.map((c) => (
+      {(classifications ?? []).map((c) => (
         <div key={c._id} className="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-sm">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
@@ -406,7 +451,12 @@ function InboundFeed() {
             <div className="flex items-center gap-2">
               <span className="text-xs text-gray-400">{timeAgo(c.receivedAt)}</span>
               <button
-                onClick={() => archiveMutation({ id: c._id })}
+                onClick={async () => {
+                  const res = await fetch(`/api/dashboard/inbound/${encodeURIComponent(String(c._id))}/archive`, { method: "POST" });
+                  if (res.ok) {
+                    setClassifications((prev) => (prev ?? []).filter((item) => item._id !== c._id));
+                  }
+                }}
                 className="text-xs px-2 py-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors"
                 title="Archive"
               >

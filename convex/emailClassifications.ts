@@ -1,14 +1,26 @@
 import { query, mutation, internalQuery, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 
+function requireApiKey(apiKey: string): void {
+  const expected = process.env.REVIEW_API_KEY ?? process.env.ADMIN_API_KEY;
+  if (!expected) {
+    throw new Error("Server misconfigured: REVIEW_API_KEY missing");
+  }
+  if (apiKey !== expected) {
+    throw new Error("Unauthorized");
+  }
+}
+
 // ── Public Queries (for dashboard) ──
 
 export const list = query({
   args: {
+    apiKey: v.string(),
     status: v.optional(v.string()),
     limit: v.optional(v.number()),
   },
-  handler: async (ctx, { status, limit }) => {
+  handler: async (ctx, { apiKey, status, limit }) => {
+    requireApiKey(apiKey);
     let q = ctx.db.query("emailClassifications").order("desc");
     if (status) {
       q = ctx.db
@@ -32,8 +44,9 @@ export const list = query({
 });
 
 export const listBySiteId = query({
-  args: { siteId: v.id("sites") },
-  handler: async (ctx, { siteId }) => {
+  args: { siteId: v.id("sites"), apiKey: v.string() },
+  handler: async (ctx, { siteId, apiKey }) => {
+    requireApiKey(apiKey);
     const all = await ctx.db
       .query("emailClassifications")
       .order("desc")
@@ -43,8 +56,9 @@ export const listBySiteId = query({
 });
 
 export const listUnmatched = query({
-  args: { limit: v.optional(v.number()) },
-  handler: async (ctx, { limit }) => {
+  args: { apiKey: v.string(), limit: v.optional(v.number()) },
+  handler: async (ctx, { apiKey, limit }) => {
+    requireApiKey(apiKey);
     const all = await ctx.db
       .query("emailClassifications")
       .order("desc")
@@ -57,15 +71,17 @@ export const listUnmatched = query({
 });
 
 export const archive = mutation({
-  args: { id: v.id("emailClassifications") },
-  handler: async (ctx, { id }) => {
+  args: { id: v.id("emailClassifications"), apiKey: v.string() },
+  handler: async (ctx, { id, apiKey }) => {
+    requireApiKey(apiKey);
     await ctx.db.patch(id, { status: "archived" });
   },
 });
 
 export const getById = query({
-  args: { id: v.id("emailClassifications") },
-  handler: async (ctx, { id }) => {
+  args: { id: v.id("emailClassifications"), apiKey: v.string() },
+  handler: async (ctx, { id, apiKey }) => {
+    requireApiKey(apiKey);
     return ctx.db.get(id);
   },
 });

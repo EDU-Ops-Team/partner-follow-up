@@ -1,13 +1,25 @@
 import { query, internalQuery, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 
+function requireApiKey(apiKey: string): void {
+  const expected = process.env.REVIEW_API_KEY ?? process.env.ADMIN_API_KEY;
+  if (!expected) {
+    throw new Error("Server misconfigured: REVIEW_API_KEY missing");
+  }
+  if (apiKey !== expected) {
+    throw new Error("Unauthorized");
+  }
+}
+
 // ── Public Queries (for dashboard) ──
 
 export const list = query({
   args: {
+    apiKey: v.string(),
     state: v.optional(v.string()),
   },
-  handler: async (ctx, { state }) => {
+  handler: async (ctx, { apiKey, state }) => {
+    requireApiKey(apiKey);
     if (state) {
       return ctx.db
         .query("emailThreads")
@@ -31,15 +43,17 @@ export const list = query({
 });
 
 export const getById = query({
-  args: { id: v.id("emailThreads") },
-  handler: async (ctx, { id }) => {
+  args: { id: v.id("emailThreads"), apiKey: v.string() },
+  handler: async (ctx, { id, apiKey }) => {
+    requireApiKey(apiKey);
     return ctx.db.get(id);
   },
 });
 
 export const listBySiteId = query({
-  args: { siteId: v.id("sites") },
-  handler: async (ctx, { siteId }) => {
+  args: { siteId: v.id("sites"), apiKey: v.string() },
+  handler: async (ctx, { siteId, apiKey }) => {
+    requireApiKey(apiKey);
     const all = await ctx.db
       .query("emailThreads")
       .order("desc")

@@ -1,8 +1,10 @@
 "use client";
 
-import { useQuery } from "convex/react";
-import { api } from "../../../convex/_generated/api";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import type { Doc } from "../../../convex/_generated/dataModel";
+
+type DraftEmail = Doc<"draftEmails">;
 
 function tierBadge(tier: number) {
   if (tier === 1) return <span className="px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-700">Tier 1</span>;
@@ -37,15 +39,33 @@ function timeAgo(ms: number): string {
   return `${days}d ago`;
 }
 
-type FilterStatus = "pending" | "all" | "approved" | "edited" | "rejected";
-
 export default function ReviewQueue() {
-  const allDrafts = useQuery(api.draftEmails.list, { limit: 200 });
-  const pendingDrafts = useQuery(api.draftEmails.list, { status: "pending", limit: 200 });
+  const [drafts, setDrafts] = useState<DraftEmail[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const drafts = allDrafts;
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const res = await fetch("/api/review/drafts?limit=200", { cache: "no-store" });
+        if (!res.ok) throw new Error(`Request failed (${res.status})`);
+        const data = (await res.json()) as { drafts: DraftEmail[] };
+        if (active) setDrafts(data.drafts);
+      } catch (err) {
+        if (active) setError(err instanceof Error ? err.message : "Failed to load drafts");
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
 
-  if (drafts === undefined) {
+  const pendingCount = useMemo(
+    () => (drafts ?? []).filter((draft) => draft.status === "pending").length,
+    [drafts]
+  );
+
+  if (drafts === null && !error) {
     return (
       <main className="max-w-7xl mx-auto px-4 py-8">
         <div className="text-gray-400 py-8 text-center">Loading drafts...</div>
@@ -53,7 +73,13 @@ export default function ReviewQueue() {
     );
   }
 
-  const pendingCount = pendingDrafts?.length ?? 0;
+  if (error) {
+    return (
+      <main className="max-w-7xl mx-auto px-4 py-8">
+        <div className="text-red-600 py-8 text-center">{error}</div>
+      </main>
+    );
+  }
 
   return (
     <main className="max-w-7xl mx-auto px-4 py-8">
@@ -66,13 +92,13 @@ export default function ReviewQueue() {
         </div>
       </div>
 
-      {drafts.length === 0 ? (
+      {(drafts ?? []).length === 0 ? (
         <div className="bg-white border border-gray-200 rounded-lg px-4 py-12 text-center text-gray-400">
           No drafts yet. Drafts will appear here once the agent starts processing emails.
         </div>
       ) : (
         <div className="space-y-3">
-          {drafts.map((draft) => (
+          {(drafts ?? []).map((draft) => (
             <Link
               key={draft._id}
               href={`/review/${draft._id}`}
@@ -89,7 +115,7 @@ export default function ReviewQueue() {
                 {draft.originalSubject}
               </div>
               <div className="flex items-center gap-4 text-xs text-gray-500">
-                <span>To: {draft.originalTo || "—"}</span>
+                <span>To: {draft.originalTo || "-"}</span>
                 {draft.originalCc && <span>CC: {draft.originalCc}</span>}
               </div>
               <div className="text-xs text-gray-400 mt-2 line-clamp-2">

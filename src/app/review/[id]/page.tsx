@@ -1,11 +1,11 @@
 "use client";
 
-import { useState } from "react";
-import { useQuery, useMutation } from "convex/react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { useSession } from "next-auth/react";
-import { api } from "../../../../convex/_generated/api";
-import type { Id } from "../../../../convex/_generated/dataModel";
+import type { Doc, Id } from "../../../../convex/_generated/dataModel";
+
+type Draft = Doc<"draftEmails">;
+type Classification = Doc<"emailClassifications"> | null;
 
 function tierBadge(tier: number) {
   if (tier === 1) return <span className="px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-700">Tier 1</span>;
@@ -39,28 +39,22 @@ function formatDatetime(ms: number) {
   });
 }
 
+function htmlToText(html: string): string {
+  return html
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n\n")
+    .replace(/<[^>]*>/g, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 export default function ReviewDraft() {
   const params = useParams();
   const router = useRouter();
-  const draftId = params.id as string;
+  const draftId = params.id as Id<"draftEmails">;
 
-  const draft = useQuery(api.draftEmails.getById, {
-    id: draftId as Id<"draftEmails">,
-  });
-
-  // Get the originating classification for context
-  const classification = useQuery(
-    api.emailClassifications.getById,
-    draft?.classificationId ? { id: draft.classificationId } : "skip"
-  );
-
-  const { data: session } = useSession();
-  const googleId = (session?.user as Record<string, unknown> | undefined)?.googleId as string | undefined;
-
-  const approveMutation = useMutation(api.draftEmails.approve);
-  const editAndSendMutation = useMutation(api.draftEmails.editAndSend);
-  const rejectMutation = useMutation(api.draftEmails.reject);
-
+  const [draft, setDraft] = useState<Draft | null | undefined>(undefined);
+  const [classification, setClassification] = useState<Classification>(null);
   const [editMode, setEditMode] = useState(false);
   const [editedTo, setEditedTo] = useState("");
   const [editedCc, setEditedCc] = useState("");
@@ -69,10 +63,43 @@ export default function ReviewDraft() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  if (draft === undefined) {
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const res = await fetch(`/api/review/drafts/${encodeURIComponent(String(draftId))}`, { cache: "no-store" });
+        if (res.status === 404) {
+          if (active) setDraft(null);
+          return;
+        }
+        if (!res.ok) throw new Error(`Request failed (${res.status})`);
+        const data = (await res.json()) as { draft: Draft; classification: Classification };
+        if (!active) return;
+        setDraft(data.draft);
+        setClassification(data.classification);
+      } catch (err) {
+        if (active) setError(err instanceof Error ? err.message : "Failed to load draft");
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [draftId]);
+
+  const isPending = useMemo(() => draft?.status === "pending", [draft]);
+
+  if (draft === undefined && !error) {
     return (
       <main className="max-w-7xl mx-auto px-4 py-8">
         <div className="text-gray-400 py-8 text-center">Loading draft...</div>
+      </main>
+    );
+  }
+
+  if (error) {
+    return (
+      <main className="max-w-7xl mx-auto px-4 py-8">
+        <div className="text-red-600 py-8 text-center">{error}</div>
       </main>
     );
   }
@@ -85,20 +112,28 @@ export default function ReviewDraft() {
     );
   }
 
-  const isPending = draft.status === "pending";
-  const htmlToText = (html: string) => html.replace(/<[^>]*>/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
-
   function startEdit() {
-    setEditedTo(draft!.originalTo);
-    setEditedCc(draft!.originalCc ?? "");
-    setEditedSubject(draft!.originalSubject);
-    setEditedBody(htmlToText(draft!.originalBody));
+    setEditedTo(draft.originalTo);
+    setEditedCc(draft.originalCc ?? "");
+    setEditedSubject(draft.originalSubject);
+    setEditedBody(htmlToText(draft.originalBody));
     setEditMode(true);
+  }
+
+  async function postAction(path: string, body?: object) {
+    const res = await fetch(path, {
+      method: "POST",
+      headers: body ? { "Content-Type": "application/json" } : undefined,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    if (!res.ok) {
+      const payload = (await res.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(payload?.error ?? `Request failed (${res.status})`);
+    }
   }
 
   return (
     <main className="max-w-7xl mx-auto px-4 py-8">
-      {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
           <button
@@ -115,7 +150,6 @@ export default function ReviewDraft() {
         </span>
       </div>
 
-      {/* Context Panel */}
       {classification && (
         <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-6">
           <h3 className="text-xs font-medium text-gray-500 uppercase mb-2">Original Email</h3>
@@ -135,7 +169,6 @@ export default function ReviewDraft() {
         </div>
       )}
 
-      {/* Draft Content */}
       <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
         <div className="p-4 border-b border-gray-100">
           <h3 className="text-xs font-medium text-gray-500 uppercase mb-3">
@@ -185,15 +218,13 @@ export default function ReviewDraft() {
               <div><span className="text-gray-500">To:</span> {draft.originalTo}</div>
               {draft.originalCc && <div><span className="text-gray-500">CC:</span> {draft.originalCc}</div>}
               <div><span className="text-gray-500">Subject:</span> {draft.originalSubject}</div>
-              <div
-                className="mt-3 prose prose-sm max-w-none border-t border-gray-100 pt-3"
-                dangerouslySetInnerHTML={{ __html: draft.originalBody }}
-              />
+              <div className="mt-3 border-t border-gray-100 pt-3 whitespace-pre-wrap">
+                {htmlToText(draft.originalBody)}
+              </div>
             </div>
           )}
         </div>
 
-        {/* Sent version (if reviewed) */}
         {draft.sentBody && (
           <div className="p-4 border-t border-gray-100 bg-green-50">
             <h3 className="text-xs font-medium text-gray-500 uppercase mb-3">Sent Version</h3>
@@ -201,10 +232,7 @@ export default function ReviewDraft() {
               <div><span className="text-gray-500">To:</span> {draft.sentTo}</div>
               {draft.sentCc && <div><span className="text-gray-500">CC:</span> {draft.sentCc}</div>}
               <div><span className="text-gray-500">Subject:</span> {draft.sentSubject}</div>
-              <div
-                className="mt-3 prose prose-sm max-w-none"
-                dangerouslySetInnerHTML={{ __html: draft.sentBody }}
-              />
+              <div className="mt-3 whitespace-pre-wrap">{htmlToText(draft.sentBody)}</div>
             </div>
             {draft.reviewedAt && (
               <div className="mt-3 text-xs text-gray-400">
@@ -215,7 +243,6 @@ export default function ReviewDraft() {
           </div>
         )}
 
-        {/* Action buttons */}
         {isPending && (
           <div className="p-4 border-t border-gray-200 bg-gray-50">
             {error && (
@@ -223,23 +250,16 @@ export default function ReviewDraft() {
                 {error}
               </div>
             )}
-            {!googleId && (
-              <div className="mb-3 text-sm text-yellow-700 bg-yellow-50 border border-yellow-200 rounded px-3 py-2">
-                Sign in to review drafts.
-              </div>
-            )}
             <div className="flex items-center gap-3">
               {editMode ? (
                 <>
                   <button
-                    disabled={isSubmitting || !googleId}
+                    disabled={isSubmitting}
                     onClick={async () => {
                       setIsSubmitting(true);
                       setError(null);
                       try {
-                        await editAndSendMutation({
-                          id: draftId as Id<"draftEmails">,
-                          reviewerGoogleId: googleId!,
+                        await postAction(`/api/review/drafts/${encodeURIComponent(String(draftId))}/edit-send`, {
                           to: editedTo,
                           cc: editedCc || undefined,
                           subject: editedSubject,
@@ -266,15 +286,12 @@ export default function ReviewDraft() {
               ) : (
                 <>
                   <button
-                    disabled={isSubmitting || !googleId}
+                    disabled={isSubmitting}
                     onClick={async () => {
                       setIsSubmitting(true);
                       setError(null);
                       try {
-                        await approveMutation({
-                          id: draftId as Id<"draftEmails">,
-                          reviewerGoogleId: googleId!,
-                        });
+                        await postAction(`/api/review/drafts/${encodeURIComponent(String(draftId))}/approve`);
                         router.push("/review");
                       } catch (err) {
                         setError(err instanceof Error ? err.message : "Failed to approve");
@@ -293,15 +310,12 @@ export default function ReviewDraft() {
                     Edit
                   </button>
                   <button
-                    disabled={isSubmitting || !googleId}
+                    disabled={isSubmitting}
                     onClick={async () => {
                       setIsSubmitting(true);
                       setError(null);
                       try {
-                        await rejectMutation({
-                          id: draftId as Id<"draftEmails">,
-                          reviewerGoogleId: googleId!,
-                        });
+                        await postAction(`/api/review/drafts/${encodeURIComponent(String(draftId))}/reject`);
                         router.push("/review");
                       } catch (err) {
                         setError(err instanceof Error ? err.message : "Failed to reject");

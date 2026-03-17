@@ -17,7 +17,12 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       if (!account || !profile) return false;
 
       try {
+        const apiKey = process.env.ADMIN_API_KEY;
+        if (!apiKey) {
+          throw new Error("Missing ADMIN_API_KEY");
+        }
         await convex.mutation(api.reviewers.syncFromOAuth, {
+          apiKey,
           googleId: account.providerAccountId,
           email: profile.email ?? user.email ?? "",
           name: profile.name ?? user.name ?? "",
