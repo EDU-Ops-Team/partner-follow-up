@@ -1,17 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { api } from "convex/_generated/api";
 import type { Id } from "convex/_generated/dataModel";
-import { getServerApiKey, getServerConvex, requireReviewer } from "@/lib/serverConvex";
+import { getServerApiKey, getServerConvex } from "@/lib/serverConvex";
 
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const reviewer = await requireReviewer();
-  if (!reviewer) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
   const { id } = await params;
   const convex = getServerConvex();
   const apiKey = getServerApiKey();
@@ -32,5 +27,3 @@ export async function GET(
 
   return NextResponse.json({ draft, classification });
 }
-
-

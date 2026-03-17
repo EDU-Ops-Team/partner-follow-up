@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import type { Doc, Id } from "convex/_generated/dataModel";
 
 type Draft = Doc<"draftEmails">;
@@ -51,6 +52,7 @@ function htmlToText(html: string): string {
 export default function ReviewDraft() {
   const params = useParams();
   const router = useRouter();
+  const { data: session } = useSession();
   const draftId = params.id as Id<"draftEmails">;
 
   const [draft, setDraft] = useState<Draft | null | undefined>(undefined);
@@ -87,6 +89,14 @@ export default function ReviewDraft() {
   }, [draftId]);
 
   const isPending = useMemo(() => draft?.status === "pending", [draft]);
+
+  function reviewerPayload() {
+    const user = session?.user as Record<string, unknown> | undefined;
+    return {
+      reviewerGoogleId: typeof user?.googleId === "string" ? user.googleId : undefined,
+      reviewerEmail: typeof user?.email === "string" ? user.email : undefined,
+    };
+  }
 
   if (draft === undefined && !error) {
     return (
@@ -261,6 +271,7 @@ export default function ReviewDraft() {
                       setError(null);
                       try {
                         await postAction(`/api/review/drafts/${encodeURIComponent(String(draftId))}/edit-send`, {
+                          ...reviewerPayload(),
                           to: editedTo,
                           cc: editedCc || undefined,
                           subject: editedSubject,
@@ -292,7 +303,7 @@ export default function ReviewDraft() {
                       setIsSubmitting(true);
                       setError(null);
                       try {
-                        await postAction(`/api/review/drafts/${encodeURIComponent(String(draftId))}/approve`);
+                        await postAction(`/api/review/drafts/${encodeURIComponent(String(draftId))}/approve`, reviewerPayload());
                         router.push("/review");
                       } catch (err) {
                         setError(err instanceof Error ? err.message : "Failed to approve");
@@ -316,7 +327,7 @@ export default function ReviewDraft() {
                       setIsSubmitting(true);
                       setError(null);
                       try {
-                        await postAction(`/api/review/drafts/${encodeURIComponent(String(draftId))}/reject`);
+                        await postAction(`/api/review/drafts/${encodeURIComponent(String(draftId))}/reject`, reviewerPayload());
                         router.push("/review");
                       } catch (err) {
                         setError(err instanceof Error ? err.message : "Failed to reject");

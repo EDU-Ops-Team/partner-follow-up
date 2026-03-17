@@ -1,13 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { api } from "convex/_generated/api";
-import { getServerApiKey, getServerConvex, requireReviewer } from "@/lib/serverConvex";
+import { getServerApiKey, getServerConvex } from "@/lib/serverConvex";
 
 export async function GET(request: NextRequest) {
-  const reviewer = await requireReviewer();
-  if (!reviewer) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
   const status = request.nextUrl.searchParams.get("status") ?? undefined;
   const limitParam = request.nextUrl.searchParams.get("limit");
   const limit = limitParam ? Number(limitParam) : undefined;
@@ -25,4 +20,3 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({ drafts });
 }
-
