@@ -90,9 +90,25 @@ export const create = mutation({
 export const update = mutation({
   args: {
     id: v.id("vendors"),
-    updates: v.any(),
+    name: v.optional(v.string()),
+    role: v.optional(v.string()),
+    category: v.optional(vendorCategoryValidator),
+    contacts: v.optional(v.array(v.object({
+      email: v.string(),
+      name: v.optional(v.string()),
+      isPrimary: v.boolean(),
+    }))),
+    triggerConditions: v.optional(v.string()),
+    geographicScope: v.optional(v.string()),
+    defaultSLADays: v.optional(v.number()),
+    notes: v.optional(v.string()),
+    status: v.optional(v.union(v.literal("active"), v.literal("inactive"))),
   },
-  handler: async (ctx, { id, updates }) => {
+  handler: async (ctx, { id, ...fields }) => {
+    const updates: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(fields)) {
+      if (value !== undefined) updates[key] = value;
+    }
     await ctx.db.patch(id, updates);
     return ctx.db.get(id);
   },

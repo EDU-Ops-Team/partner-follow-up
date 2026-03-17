@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "../../../convex/_generated/api";
+import type { Id } from "../../../convex/_generated/dataModel";
 
 function categoryBadge(category: string) {
   const colors: Record<string, string> = {
@@ -39,20 +40,36 @@ const CATEGORIES = [
   "it_cabling", "architecture", "legal", "insurance", "other",
 ] as const;
 
+type PartnerFormData = {
+  name: string;
+  role: string;
+  category: typeof CATEGORIES[number];
+  contactEmail: string;
+  contactName: string;
+  geographicScope: string;
+  defaultSLADays: string;
+  notes: string;
+};
+
+const EMPTY_FORM: PartnerFormData = {
+  name: "",
+  role: "",
+  category: "other",
+  contactEmail: "",
+  contactName: "",
+  geographicScope: "",
+  defaultSLADays: "",
+  notes: "",
+};
+
 export default function PartnersPage() {
   const partners = useQuery(api.vendors.list, {});
   const createPartner = useMutation(api.vendors.create);
+  const updatePartner = useMutation(api.vendors.update);
   const [showForm, setShowForm] = useState(false);
-  const [formData, setFormData] = useState({
-    name: "",
-    role: "",
-    category: "other" as typeof CATEGORIES[number],
-    contactEmail: "",
-    contactName: "",
-    geographicScope: "",
-    defaultSLADays: "",
-    notes: "",
-  });
+  const [formData, setFormData] = useState<PartnerFormData>(EMPTY_FORM);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editData, setEditData] = useState<PartnerFormData>(EMPTY_FORM);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   if (partners === undefined) {
@@ -80,15 +97,63 @@ export default function PartnersPage() {
         defaultSLADays: formData.defaultSLADays ? parseInt(formData.defaultSLADays) : undefined,
         notes: formData.notes || undefined,
       });
-      setFormData({
-        name: "", role: "", category: "other", contactEmail: "",
-        contactName: "", geographicScope: "", defaultSLADays: "", notes: "",
-      });
+      setFormData(EMPTY_FORM);
       setShowForm(false);
     } catch (error) {
       console.error("Failed to create partner:", error);
     }
     setIsSubmitting(false);
+  }
+
+  function startEdit(partner: NonNullable<typeof partners>[number]) {
+    const primary = partner.contacts.find((c) => c.isPrimary) ?? partner.contacts[0];
+    setEditingId(partner._id);
+    setEditData({
+      name: partner.name,
+      role: partner.role,
+      category: partner.category,
+      contactEmail: primary?.email ?? "",
+      contactName: primary?.name ?? "",
+      geographicScope: partner.geographicScope ?? "",
+      defaultSLADays: partner.defaultSLADays?.toString() ?? "",
+      notes: partner.notes ?? "",
+    });
+  }
+
+  async function handleUpdate(e: React.FormEvent, partnerId: string) {
+    e.preventDefault();
+    setIsSubmitting(true);
+    try {
+      const partner = partners?.find((p) => p._id === partnerId);
+      const otherContacts = partner?.contacts.filter((c) => !c.isPrimary) ?? [];
+      const primaryContact = editData.contactEmail
+        ? { email: editData.contactEmail, name: editData.contactName || undefined, isPrimary: true as const }
+        : null;
+      const contacts = primaryContact ? [primaryContact, ...otherContacts] : otherContacts;
+
+      await updatePartner({
+        id: partnerId as Id<"vendors">,
+        name: editData.name,
+        role: editData.role,
+        category: editData.category,
+        contacts,
+        geographicScope: editData.geographicScope || undefined,
+        defaultSLADays: editData.defaultSLADays ? parseInt(editData.defaultSLADays) : undefined,
+        notes: editData.notes || undefined,
+      });
+      setEditingId(null);
+    } catch (error) {
+      console.error("Failed to update partner:", error);
+    }
+    setIsSubmitting(false);
+  }
+
+  async function toggleStatus(partner: NonNullable<typeof partners>[number]) {
+    const newStatus = partner.status === "active" ? "inactive" : "active";
+    await updatePartner({
+      id: partner._id as Id<"vendors">,
+      status: newStatus,
+    });
   }
 
   return (
@@ -217,31 +282,151 @@ export default function PartnersPage() {
               key={partner._id}
               className="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-sm"
             >
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2">
-                  <span className="font-medium text-sm">{partner.name}</span>
-                  {categoryBadge(partner.category)}
-                  {statusBadge(partner.status)}
-                </div>
-                {partner.geographicScope && (
-                  <span className="text-xs text-gray-400">{partner.geographicScope}</span>
-                )}
-              </div>
-              <div className="text-sm text-gray-600 mb-2">{partner.role}</div>
-              <div className="flex flex-wrap gap-4 text-xs text-gray-500">
-                {partner.contacts.map((c, i) => (
-                  <span key={i}>
-                    {c.name ? `${c.name} — ` : ""}{c.email}
-                    {c.isPrimary && <span className="ml-1 text-blue-500">(primary)</span>}
-                  </span>
-                ))}
-                {partner.defaultSLADays && (
-                  <span>SLA: {partner.defaultSLADays} days</span>
-                )}
-                <span>Active sites: {partner.activeSiteCount}</span>
-              </div>
-              {partner.notes && (
-                <div className="text-xs text-gray-400 mt-2">{partner.notes}</div>
+              {editingId === partner._id ? (
+                <form onSubmit={(e) => handleUpdate(e, partner._id)} className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Partner Name *</label>
+                      <input
+                        required
+                        type="text"
+                        value={editData.name}
+                        onChange={(e) => setEditData({ ...editData, name: e.target.value })}
+                        className="w-full border border-gray-200 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Role *</label>
+                      <input
+                        required
+                        type="text"
+                        value={editData.role}
+                        onChange={(e) => setEditData({ ...editData, role: e.target.value })}
+                        className="w-full border border-gray-200 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Category *</label>
+                      <select
+                        value={editData.category}
+                        onChange={(e) => setEditData({ ...editData, category: e.target.value as typeof CATEGORIES[number] })}
+                        className="w-full border border-gray-200 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        {CATEGORIES.map((cat) => (
+                          <option key={cat} value={cat}>{cat.replace(/_/g, " ")}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Primary Contact Email</label>
+                      <input
+                        type="email"
+                        value={editData.contactEmail}
+                        onChange={(e) => setEditData({ ...editData, contactEmail: e.target.value })}
+                        className="w-full border border-gray-200 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Contact Name</label>
+                      <input
+                        type="text"
+                        value={editData.contactName}
+                        onChange={(e) => setEditData({ ...editData, contactName: e.target.value })}
+                        className="w-full border border-gray-200 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Geographic Scope</label>
+                      <input
+                        type="text"
+                        value={editData.geographicScope}
+                        onChange={(e) => setEditData({ ...editData, geographicScope: e.target.value })}
+                        className="w-full border border-gray-200 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Default SLA (business days)</label>
+                      <input
+                        type="number"
+                        value={editData.defaultSLADays}
+                        onChange={(e) => setEditData({ ...editData, defaultSLADays: e.target.value })}
+                        className="w-full border border-gray-200 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Notes</label>
+                      <input
+                        type="text"
+                        value={editData.notes}
+                        onChange={(e) => setEditData({ ...editData, notes: e.target.value })}
+                        className="w-full border border-gray-200 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      type="submit"
+                      disabled={isSubmitting}
+                      className="px-4 py-1.5 text-sm font-medium bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                    >
+                      {isSubmitting ? "Saving..." : "Save"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditingId(null)}
+                      className="px-4 py-1.5 text-sm font-medium bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-sm">{partner.name}</span>
+                      {categoryBadge(partner.category)}
+                      {statusBadge(partner.status)}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {partner.geographicScope && (
+                        <span className="text-xs text-gray-400">{partner.geographicScope}</span>
+                      )}
+                      <button
+                        onClick={() => startEdit(partner)}
+                        className="px-2 py-1 text-xs text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => toggleStatus(partner)}
+                        className={`px-2 py-1 text-xs rounded transition-colors ${
+                          partner.status === "active"
+                            ? "text-gray-500 hover:text-red-600 hover:bg-red-50"
+                            : "text-gray-500 hover:text-green-600 hover:bg-green-50"
+                        }`}
+                      >
+                        {partner.status === "active" ? "Deactivate" : "Activate"}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="text-sm text-gray-600 mb-2">{partner.role}</div>
+                  <div className="flex flex-wrap gap-4 text-xs text-gray-500">
+                    {partner.contacts.map((c, i) => (
+                      <span key={i}>
+                        {c.name ? `${c.name} — ` : ""}{c.email}
+                        {c.isPrimary && <span className="ml-1 text-blue-500">(primary)</span>}
+                      </span>
+                    ))}
+                    {partner.defaultSLADays && (
+                      <span>SLA: {partner.defaultSLADays} days</span>
+                    )}
+                    <span>Active sites: {partner.activeSiteCount}</span>
+                  </div>
+                  {partner.notes && (
+                    <div className="text-xs text-gray-400 mt-2">{partner.notes}</div>
+                  )}
+                </>
               )}
             </div>
           ))}
