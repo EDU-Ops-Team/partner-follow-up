@@ -105,10 +105,28 @@ export const update = mutation({
     status: v.optional(v.union(v.literal("active"), v.literal("inactive"))),
   },
   handler: async (ctx, { id, ...fields }) => {
+    const existing = await ctx.db.get(id);
+    if (!existing) {
+      throw new Error("Vendor not found");
+    }
+
     const updates: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(fields)) {
       if (value !== undefined) updates[key] = value;
     }
+
+    // Older vendor records can be missing fields that are now required by schema.
+    // Normalize them during any update so edits don't fail on legacy documents.
+    if (existing.activeSiteCount === undefined) {
+      updates.activeSiteCount = 0;
+    }
+    if (existing.status === undefined) {
+      updates.status = "active";
+    }
+    if (existing.contacts === undefined) {
+      updates.contacts = [];
+    }
+
     await ctx.db.patch(id, updates);
     return ctx.db.get(id);
   },
