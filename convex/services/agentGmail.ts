@@ -43,10 +43,38 @@ export async function markAsRead(messageId: string): Promise<void> {
   });
 }
 
+export async function removeLabel(messageId: string, labelId: string): Promise<void> {
+  const gmail = getClient();
+  await gmail.users.messages.modify({ userId: "me", id: messageId, requestBody: { removeLabelIds: [labelId] } });
+}
+
+export async function getLabelId(labelName: string): Promise<string | null> {
+  const gmail = getClient();
+  const res = await gmail.users.labels.list({ userId: "me" });
+  const label = (res.data.labels ?? []).find(
+    (l) => l.name?.toLowerCase() === labelName.toLowerCase()
+  );
+  return label?.id ?? null;
+}
+
 export async function listThreadMessages(threadId: string): Promise<gmail_v1.Schema$Message[]> {
   const gmail = getClient();
   const res = await gmail.users.threads.get({ userId: "me", id: threadId, format: "full" });
   return res.data.messages ?? [];
+}
+
+export interface ThreadingOptions {
+  threadId?: string;
+  inReplyTo?: string;
+  references?: string;
+}
+
+export async function getAttachment(messageId: string, attachmentId: string): Promise<Buffer> {
+  const gmail = getClient();
+  const res = await gmail.users.messages.attachments.get({
+    userId: "me", messageId, id: attachmentId,
+  });
+  return Buffer.from(res.data.data!, "base64url");
 }
 
 export async function sendEmail(
@@ -54,7 +82,7 @@ export async function sendEmail(
   subject: string,
   htmlBody: string,
   cc?: string,
-  threading?: { threadId?: string; inReplyTo?: string; references?: string }
+  threading?: ThreadingOptions
 ): Promise<void> {
   const gmail = getClient();
   const sendAs = getEnv("AGENT_GMAIL_SEND_AS") ?? "edu.ops@trilogy.com";

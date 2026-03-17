@@ -1,4 +1,4 @@
-import { query, internalQuery, internalMutation } from "./_generated/server";
+import { query, mutation, internalQuery, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 
 export const list = query({
@@ -31,6 +31,41 @@ export const getByEmail = internalQuery({
       .query("reviewers")
       .withIndex("by_email", (q) => q.eq("email", email))
       .first();
+  },
+});
+
+export const syncFromOAuth = mutation({
+  args: {
+    googleId: v.string(),
+    email: v.string(),
+    name: v.string(),
+    avatarUrl: v.optional(v.string()),
+  },
+  handler: async (ctx, { googleId, email, name, avatarUrl }) => {
+    const existing = await ctx.db
+      .query("reviewers")
+      .withIndex("by_googleId", (q) => q.eq("googleId", googleId))
+      .first();
+
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        email,
+        name,
+        avatarUrl,
+        lastLoginAt: Date.now(),
+      });
+      return existing._id;
+    }
+
+    return ctx.db.insert("reviewers", {
+      googleId,
+      email,
+      name,
+      avatarUrl,
+      role: "reviewer",
+      lastLoginAt: Date.now(),
+      createdAt: Date.now(),
+    });
   },
 });
 

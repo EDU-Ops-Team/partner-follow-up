@@ -1,7 +1,7 @@
 import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
 import { ConvexHttpClient } from "convex/browser";
-import { api, internal } from "../../convex/_generated/api";
+import { api } from "../../convex/_generated/api";
 
 const convex = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
 
@@ -16,15 +16,17 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     async signIn({ user, account, profile }) {
       if (!account || !profile) return false;
 
-      // Sync reviewer record to Convex
       try {
-        // Use the public mutation approach since ConvexHttpClient can't call internal functions
-        // The reviewers.upsertFromOAuth is internal, so we'll handle this via an admin API route
-        return true;
+        await convex.mutation(api.reviewers.syncFromOAuth, {
+          googleId: account.providerAccountId,
+          email: profile.email ?? user.email ?? "",
+          name: profile.name ?? user.name ?? "",
+          avatarUrl: (profile.picture as string | undefined) ?? user.image ?? undefined,
+        });
       } catch (error) {
         console.error("Failed to sync reviewer to Convex:", error);
-        return true; // Still allow sign-in even if sync fails
       }
+      return true;
     },
     async jwt({ token, account, profile }) {
       if (account && profile) {

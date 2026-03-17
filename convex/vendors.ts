@@ -98,6 +98,34 @@ export const update = mutation({
   },
 });
 
+// ── Internal Mutations ──
+
+export const autoCreate = internalMutation({
+  args: {
+    name: v.string(),
+    email: v.string(),
+    category: vendorCategoryValidator,
+  },
+  handler: async (ctx, { name, email, category }) => {
+    // Dedup: check if any existing vendor has this email
+    const normalizedEmail = email.toLowerCase().trim();
+    const all = await ctx.db.query("vendors").collect();
+    const existing = all.find((vendor) =>
+      vendor.contacts.some((c) => c.email.toLowerCase().trim() === normalizedEmail)
+    );
+    if (existing) return existing._id;
+
+    return ctx.db.insert("vendors", {
+      name,
+      role: "Auto-detected partner",
+      category,
+      contacts: [{ email: normalizedEmail, name, isPrimary: true }],
+      activeSiteCount: 0,
+      status: "active",
+    });
+  },
+});
+
 // ── Seed Mutation ──
 
 export const seed = mutation({

@@ -10,7 +10,7 @@ import {
 import { fetchAirtableData } from "./services/airtableScraper";
 import { fetchInspectionData } from "./services/googleSheets";
 import { postToChat } from "./services/googleChat";
-import { sendEmail, type ThreadingOptions } from "./services/gmail";
+import { sendEmail, type ThreadingOptions } from "./services/agentGmail";
 import { matchAddress } from "./lib/addressNormalizer";
 import { addBusinessDays, countBusinessDays } from "./lib/businessDays";
 import {
@@ -138,10 +138,11 @@ export const run = internalAction({
             const daysSinceTrigger = countBusinessDays(new Date(site.triggerDate), new Date(now));
             await postToChat(chatWebhook, schedulingReminderChat(site, daysSinceTrigger));
             const email = schedulingReminderEmail(site, daysSinceTrigger);
-            const threadOpts: ThreadingOptions | undefined = site.triggerThreadId ? {
-              threadId: site.triggerThreadId,
-              inReplyTo: site.triggerMessageId,
-              references: site.triggerMessageId,
+            const latestTrigger = site.triggerEmails?.[site.triggerEmails.length - 1];
+            const threadOpts: ThreadingOptions | undefined = (latestTrigger?.threadId ?? site.triggerThreadId) ? {
+              threadId: latestTrigger?.threadId ?? site.triggerThreadId,
+              inReplyTo: latestTrigger?.messageId ?? site.triggerMessageId,
+              references: latestTrigger?.messageId ?? site.triggerMessageId,
             } : undefined;
             await sendEmail(site.responsiblePartyEmail, email.subject, email.html, undefined, threadOpts);
 

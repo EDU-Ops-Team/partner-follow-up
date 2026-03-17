@@ -3,22 +3,14 @@ import { internal } from "./_generated/api";
 
 const crons = cronJobs();
 
-// Poll Gmail for trigger emails every 15 minutes
-crons.interval("check email", { minutes: 15 }, internal.checkEmail.run);
+// Legacy crons — disabled until Zack redirects trigger emails to edu.ops
+// crons.interval("check email", { minutes: 15 }, internal.checkEmail.run);
+// crons.interval("check scheduling", { minutes: 30 }, internal.checkScheduling.run);
+// crons.interval("check completion", { minutes: 30 }, internal.checkCompletion.run);
+// crons.interval("check replies", { minutes: 15 }, internal.checkReplies.run);
 
-// Check Airtable + Sheets for scheduling updates every 30 minutes
-crons.interval("check scheduling", { minutes: 30 }, internal.checkScheduling.run);
-
-// Monitor LiDAR completion + report status every 30 minutes
-crons.interval("check completion", { minutes: 30 }, internal.checkCompletion.run);
-
-// Watch for replies in active email threads every 15 minutes
-crons.interval("check replies", { minutes: 15 }, internal.checkReplies.run);
-
-// Classify inbound emails to edu.ops@trilogy.com every 15 minutes
+// Email agent crons — enabled for testing
 crons.interval("classify inbound", { minutes: 15 }, internal.classifyInbound.run);
-
-// Execute decisions on classified emails every 15 minutes
 crons.interval("execute decisions", { minutes: 15 }, internal.executeDecisions.run);
 
 export default crons;

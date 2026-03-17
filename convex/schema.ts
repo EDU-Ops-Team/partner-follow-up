@@ -17,9 +17,19 @@ export default defineSchema({
       v.literal("resolved")
     ),
 
+    // Trigger emails (one site can be referenced by multiple trigger emails)
+    triggerEmails: v.optional(v.array(v.object({
+      emailId: v.string(),
+      threadId: v.optional(v.string()),
+      messageId: v.optional(v.string()),
+      receivedAt: v.number(),
+    }))),
+
+    // Legacy trigger fields (kept during migration, will be removed)
     triggerEmailId: v.optional(v.string()),
-    triggerThreadId: v.optional(v.string()),     // Gmail thread ID
-    triggerMessageId: v.optional(v.string()),    // RFC Message-ID header
+    triggerThreadId: v.optional(v.string()),
+    triggerMessageId: v.optional(v.string()),
+
     triggerDate: v.number(), // ms since epoch
     nextCheckDate: v.number(),
 

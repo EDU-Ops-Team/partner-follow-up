@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { useParams, useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 
@@ -53,12 +54,20 @@ export default function ReviewDraft() {
     draft?.classificationId ? { id: draft.classificationId } : "skip"
   );
 
+  const { data: session } = useSession();
+  const googleId = (session?.user as Record<string, unknown> | undefined)?.googleId as string | undefined;
+
+  const approveMutation = useMutation(api.draftEmails.approve);
+  const editAndSendMutation = useMutation(api.draftEmails.editAndSend);
+  const rejectMutation = useMutation(api.draftEmails.reject);
+
   const [editMode, setEditMode] = useState(false);
   const [editedTo, setEditedTo] = useState("");
   const [editedCc, setEditedCc] = useState("");
   const [editedSubject, setEditedSubject] = useState("");
   const [editedBody, setEditedBody] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   if (draft === undefined) {
     return (
@@ -208,62 +217,105 @@ export default function ReviewDraft() {
 
         {/* Action buttons */}
         {isPending && (
-          <div className="p-4 border-t border-gray-200 bg-gray-50 flex items-center gap-3">
-            {editMode ? (
-              <>
-                <button
-                  disabled={isSubmitting}
-                  onClick={() => {
-                    // TODO: Wire up to Convex mutation when send pipeline is built
-                    setIsSubmitting(true);
-                    alert("Send pipeline not yet connected. This will be wired in Phase 3.");
-                    setIsSubmitting(false);
-                  }}
-                  className="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 transition-colors"
-                >
-                  Send Edited Version
-                </button>
-                <button
-                  onClick={() => setEditMode(false)}
-                  className="px-4 py-2 text-sm font-medium text-gray-600 bg-white border border-gray-200 rounded-md hover:bg-gray-50 transition-colors"
-                >
-                  Cancel Edit
-                </button>
-              </>
-            ) : (
-              <>
-                <button
-                  disabled={isSubmitting}
-                  onClick={() => {
-                    // TODO: Wire up approve action
-                    setIsSubmitting(true);
-                    alert("Send pipeline not yet connected. This will be wired in Phase 3.");
-                    setIsSubmitting(false);
-                  }}
-                  className="px-4 py-2 text-sm font-medium bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 transition-colors"
-                >
-                  Approve &amp; Send
-                </button>
-                <button
-                  onClick={startEdit}
-                  className="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
-                >
-                  Edit
-                </button>
-                <button
-                  disabled={isSubmitting}
-                  onClick={() => {
-                    // TODO: Wire up reject action
-                    setIsSubmitting(true);
-                    alert("Reject action not yet connected. This will be wired in Phase 3.");
-                    setIsSubmitting(false);
-                  }}
-                  className="px-4 py-2 text-sm font-medium text-red-600 bg-white border border-red-200 rounded-md hover:bg-red-50 disabled:opacity-50 transition-colors"
-                >
-                  Reject
-                </button>
-              </>
+          <div className="p-4 border-t border-gray-200 bg-gray-50">
+            {error && (
+              <div className="mb-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">
+                {error}
+              </div>
             )}
+            {!googleId && (
+              <div className="mb-3 text-sm text-yellow-700 bg-yellow-50 border border-yellow-200 rounded px-3 py-2">
+                Sign in to review drafts.
+              </div>
+            )}
+            <div className="flex items-center gap-3">
+              {editMode ? (
+                <>
+                  <button
+                    disabled={isSubmitting || !googleId}
+                    onClick={async () => {
+                      setIsSubmitting(true);
+                      setError(null);
+                      try {
+                        await editAndSendMutation({
+                          id: draftId as Id<"draftEmails">,
+                          reviewerGoogleId: googleId!,
+                          to: editedTo,
+                          cc: editedCc || undefined,
+                          subject: editedSubject,
+                          body: editedBody,
+                        });
+                        router.push("/review");
+                      } catch (err) {
+                        setError(err instanceof Error ? err.message : "Failed to send");
+                      } finally {
+                        setIsSubmitting(false);
+                      }
+                    }}
+                    className="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                  >
+                    {isSubmitting ? "Sending..." : "Send Edited Version"}
+                  </button>
+                  <button
+                    onClick={() => setEditMode(false)}
+                    className="px-4 py-2 text-sm font-medium text-gray-600 bg-white border border-gray-200 rounded-md hover:bg-gray-50 transition-colors"
+                  >
+                    Cancel Edit
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    disabled={isSubmitting || !googleId}
+                    onClick={async () => {
+                      setIsSubmitting(true);
+                      setError(null);
+                      try {
+                        await approveMutation({
+                          id: draftId as Id<"draftEmails">,
+                          reviewerGoogleId: googleId!,
+                        });
+                        router.push("/review");
+                      } catch (err) {
+                        setError(err instanceof Error ? err.message : "Failed to approve");
+                      } finally {
+                        setIsSubmitting(false);
+                      }
+                    }}
+                    className="px-4 py-2 text-sm font-medium bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 transition-colors"
+                  >
+                    {isSubmitting ? "Sending..." : "Approve & Send"}
+                  </button>
+                  <button
+                    onClick={startEdit}
+                    className="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    disabled={isSubmitting || !googleId}
+                    onClick={async () => {
+                      setIsSubmitting(true);
+                      setError(null);
+                      try {
+                        await rejectMutation({
+                          id: draftId as Id<"draftEmails">,
+                          reviewerGoogleId: googleId!,
+                        });
+                        router.push("/review");
+                      } catch (err) {
+                        setError(err instanceof Error ? err.message : "Failed to reject");
+                      } finally {
+                        setIsSubmitting(false);
+                      }
+                    }}
+                    className="px-4 py-2 text-sm font-medium text-red-600 bg-white border border-red-200 rounded-md hover:bg-red-50 disabled:opacity-50 transition-colors"
+                  >
+                    Reject
+                  </button>
+                </>
+              )}
+            </div>
           </div>
         )}
       </div>

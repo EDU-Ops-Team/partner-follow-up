@@ -39,9 +39,9 @@ const CATEGORIES = [
   "it_cabling", "architecture", "legal", "insurance", "other",
 ] as const;
 
-export default function VendorsPage() {
-  const vendors = useQuery(api.vendors.list, {});
-  const createVendor = useMutation(api.vendors.create);
+export default function PartnersPage() {
+  const partners = useQuery(api.vendors.list, {});
+  const createPartner = useMutation(api.vendors.create);
   const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState({
     name: "",
@@ -55,10 +55,10 @@ export default function VendorsPage() {
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  if (vendors === undefined) {
+  if (partners === undefined) {
     return (
       <main className="max-w-7xl mx-auto px-4 py-8">
-        <div className="text-gray-400 py-8 text-center">Loading vendors...</div>
+        <div className="text-gray-400 py-8 text-center">Loading partners...</div>
       </main>
     );
   }
@@ -67,7 +67,7 @@ export default function VendorsPage() {
     e.preventDefault();
     setIsSubmitting(true);
     try {
-      await createVendor({
+      await createPartner({
         name: formData.name,
         role: formData.role,
         category: formData.category,
@@ -86,7 +86,7 @@ export default function VendorsPage() {
       });
       setShowForm(false);
     } catch (error) {
-      console.error("Failed to create vendor:", error);
+      console.error("Failed to create partner:", error);
     }
     setIsSubmitting(false);
   }
@@ -95,25 +95,24 @@ export default function VendorsPage() {
     <main className="max-w-7xl mx-auto px-4 py-8">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-xl font-bold">Vendor Directory</h1>
+          <h1 className="text-xl font-bold">Partner Directory</h1>
           <p className="text-sm text-gray-500 mt-1">
-            {vendors.length} vendor{vendors.length !== 1 ? "s" : ""}
+            {partners.length} partner{partners.length !== 1 ? "s" : ""}
           </p>
         </div>
         <button
           onClick={() => setShowForm(!showForm)}
           className="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
         >
-          {showForm ? "Cancel" : "Add Vendor"}
+          {showForm ? "Cancel" : "Add Partner"}
         </button>
       </div>
 
-      {/* Add Vendor Form */}
       {showForm && (
         <form onSubmit={handleSubmit} className="bg-white border border-gray-200 rounded-lg p-5 mb-6 space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Vendor Name *</label>
+              <label className="block text-xs text-gray-500 mb-1">Partner Name *</label>
               <input
                 required
                 type="text"
@@ -153,7 +152,7 @@ export default function VendorsPage() {
                 value={formData.contactEmail}
                 onChange={(e) => setFormData({ ...formData, contactEmail: e.target.value })}
                 className="w-full border border-gray-200 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="contact@vendor.com"
+                placeholder="contact@partner.com"
               />
             </div>
             <div>
@@ -202,48 +201,47 @@ export default function VendorsPage() {
             disabled={isSubmitting}
             className="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 transition-colors"
           >
-            {isSubmitting ? "Creating..." : "Create Vendor"}
+            {isSubmitting ? "Creating..." : "Create Partner"}
           </button>
         </form>
       )}
 
-      {/* Vendor List */}
-      {vendors.length === 0 ? (
+      {partners.length === 0 ? (
         <div className="bg-white border border-gray-200 rounded-lg px-4 py-12 text-center text-gray-400">
-          No vendors yet. Add vendors manually or run the seed mutation from the Convex dashboard.
+          No partners yet. Add partners manually or they will be auto-detected from inbound emails.
         </div>
       ) : (
         <div className="space-y-3">
-          {vendors.map((vendor) => (
+          {partners.map((partner) => (
             <div
-              key={vendor._id}
+              key={partner._id}
               className="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-sm"
             >
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
-                  <span className="font-medium text-sm">{vendor.name}</span>
-                  {categoryBadge(vendor.category)}
-                  {statusBadge(vendor.status)}
+                  <span className="font-medium text-sm">{partner.name}</span>
+                  {categoryBadge(partner.category)}
+                  {statusBadge(partner.status)}
                 </div>
-                {vendor.geographicScope && (
-                  <span className="text-xs text-gray-400">{vendor.geographicScope}</span>
+                {partner.geographicScope && (
+                  <span className="text-xs text-gray-400">{partner.geographicScope}</span>
                 )}
               </div>
-              <div className="text-sm text-gray-600 mb-2">{vendor.role}</div>
+              <div className="text-sm text-gray-600 mb-2">{partner.role}</div>
               <div className="flex flex-wrap gap-4 text-xs text-gray-500">
-                {vendor.contacts.map((c, i) => (
+                {partner.contacts.map((c, i) => (
                   <span key={i}>
                     {c.name ? `${c.name} — ` : ""}{c.email}
                     {c.isPrimary && <span className="ml-1 text-blue-500">(primary)</span>}
                   </span>
                 ))}
-                {vendor.defaultSLADays && (
-                  <span>SLA: {vendor.defaultSLADays} days</span>
+                {partner.defaultSLADays && (
+                  <span>SLA: {partner.defaultSLADays} days</span>
                 )}
-                <span>Active sites: {vendor.activeSiteCount}</span>
+                <span>Active sites: {partner.activeSiteCount}</span>
               </div>
-              {vendor.notes && (
-                <div className="text-xs text-gray-400 mt-2">{vendor.notes}</div>
+              {partner.notes && (
+                <div className="text-xs text-gray-400 mt-2">{partner.notes}</div>
               )}
             </div>
           ))}

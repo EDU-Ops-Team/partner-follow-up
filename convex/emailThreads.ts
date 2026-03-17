@@ -37,6 +37,17 @@ export const getById = query({
   },
 });
 
+export const listBySiteId = query({
+  args: { siteId: v.id("sites") },
+  handler: async (ctx, { siteId }) => {
+    const all = await ctx.db
+      .query("emailThreads")
+      .order("desc")
+      .collect();
+    return all.filter((t) => t.linkedSiteIds.includes(siteId));
+  },
+});
+
 // ── Internal Queries (for actions) ──
 
 export const getByGmailThreadId = internalQuery({

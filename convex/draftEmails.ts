@@ -1,4 +1,5 @@
-import { query, internalQuery, internalMutation } from "./_generated/server";
+import { query, mutation, internalQuery, internalMutation } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { v } from "convex/values";
 
 // ── Public Queries (for dashboard) ──
@@ -41,6 +42,17 @@ export const getById = query({
   },
 });
 
+export const listBySiteId = query({
+  args: { siteId: v.id("sites") },
+  handler: async (ctx, { siteId }) => {
+    return ctx.db
+      .query("draftEmails")
+      .withIndex("by_siteId", (q) => q.eq("siteId", siteId))
+      .order("desc")
+      .collect();
+  },
+});
+
 // ── Internal Queries (for actions) ──
 
 export const listPending = internalQuery({
@@ -59,6 +71,13 @@ export const getByClassification = internalQuery({
       .query("draftEmails")
       .withIndex("by_classificationId", (q) => q.eq("classificationId", classificationId))
       .first();
+  },
+});
+
+export const getByIdInternal = internalQuery({
+  args: { id: v.id("draftEmails") },
+  handler: async (ctx, { id }) => {
+    return ctx.db.get(id);
   },
 });
 
@@ -105,6 +124,102 @@ export const updateReview = internalMutation({
   handler: async (ctx, { id, ...updates }) => {
     await ctx.db.patch(id, {
       ...updates,
+      reviewedAt: Date.now(),
+    });
+  },
+});
+
+// ── Public Mutations (for review dashboard) ──
+
+export const approve = mutation({
+  args: {
+    id: v.id("draftEmails"),
+    reviewerGoogleId: v.string(),
+  },
+  handler: async (ctx, { id, reviewerGoogleId }) => {
+    const draft = await ctx.db.get(id);
+    if (!draft || draft.status !== "pending") {
+      throw new Error("Draft not found or not pending");
+    }
+
+    const reviewer = await ctx.db
+      .query("reviewers")
+      .withIndex("by_googleId", (q) => q.eq("googleId", reviewerGoogleId))
+      .first();
+    if (!reviewer) throw new Error("Reviewer not found");
+
+    await ctx.db.patch(id, {
+      status: "approved",
+      reviewedBy: reviewer._id,
+      reviewedAt: Date.now(),
+      sentTo: draft.originalTo,
+      sentCc: draft.originalCc,
+      sentSubject: draft.originalSubject,
+      sentBody: draft.originalBody,
+      editsMade: false,
+    });
+
+    await ctx.scheduler.runAfter(0, internal.sendDraftEmail.sendApproved, { id });
+  },
+});
+
+export const editAndSend = mutation({
+  args: {
+    id: v.id("draftEmails"),
+    reviewerGoogleId: v.string(),
+    to: v.string(),
+    cc: v.optional(v.string()),
+    subject: v.string(),
+    body: v.string(),
+  },
+  handler: async (ctx, { id, reviewerGoogleId, to, cc, subject, body }) => {
+    const draft = await ctx.db.get(id);
+    if (!draft || draft.status !== "pending") {
+      throw new Error("Draft not found or not pending");
+    }
+
+    const reviewer = await ctx.db
+      .query("reviewers")
+      .withIndex("by_googleId", (q) => q.eq("googleId", reviewerGoogleId))
+      .first();
+    if (!reviewer) throw new Error("Reviewer not found");
+
+    const htmlBody = body.replace(/\n/g, "<br>");
+    await ctx.db.patch(id, {
+      status: "edited",
+      reviewedBy: reviewer._id,
+      reviewedAt: Date.now(),
+      sentTo: to,
+      sentCc: cc,
+      sentSubject: subject,
+      sentBody: htmlBody,
+      editsMade: true,
+    });
+
+    await ctx.scheduler.runAfter(0, internal.sendDraftEmail.sendApproved, { id });
+  },
+});
+
+export const reject = mutation({
+  args: {
+    id: v.id("draftEmails"),
+    reviewerGoogleId: v.string(),
+  },
+  handler: async (ctx, { id, reviewerGoogleId }) => {
+    const draft = await ctx.db.get(id);
+    if (!draft || draft.status !== "pending") {
+      throw new Error("Draft not found or not pending");
+    }
+
+    const reviewer = await ctx.db
+      .query("reviewers")
+      .withIndex("by_googleId", (q) => q.eq("googleId", reviewerGoogleId))
+      .first();
+    if (!reviewer) throw new Error("Reviewer not found");
+
+    await ctx.db.patch(id, {
+      status: "rejected",
+      reviewedBy: reviewer._id,
       reviewedAt: Date.now(),
     });
   },

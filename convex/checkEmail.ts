@@ -9,7 +9,7 @@ import {
   IMPORT_LABEL_NAME,
   SCHEDULING_CHECK_INTERVAL_DAYS,
 } from "./lib/constants";
-import { listMessages, getMessage, parseGmailMessage, markAsRead, removeLabel, getLabelId } from "./services/gmail";
+import { listMessages, getMessage, parseGmailMessage, markAsRead, removeLabel, getLabelId } from "./services/agentGmail";
 import { extractSiteInfo, isTriggerEmail } from "./services/emailParser";
 import { postToChat } from "./services/googleChat";
 import { normalizeAddress } from "./lib/addressNormalizer";
@@ -40,9 +40,9 @@ export const run = internalAction({
         try {
           if (!msg.id) continue;
 
-          // Dedup check
-          const existing = await ctx.runQuery(internal.sites.getByTriggerEmailId, { emailId: msg.id });
-          if (existing) {
+          // Dedup via processedMessages
+          const already = await ctx.runQuery(internal.processedMessages.getByMessageId, { messageId: msg.id });
+          if (already) {
             await markAsRead(msg.id).catch(() => {});
             continue;
           }
@@ -70,28 +70,39 @@ export const run = internalAction({
           const now = Date.now();
           const nextCheck = addBusinessDays(new Date(now), SCHEDULING_CHECK_INTERVAL_DAYS).getTime();
 
-          const siteId = await ctx.runMutation(internal.sites.create, {
+          const { siteId, created } = await ctx.runMutation(internal.sites.findOrCreateByAddress, {
             siteAddress: siteInfo.address,
             normalizedAddress: normalizeAddress(siteInfo.address),
             responsiblePartyEmail: siteInfo.responsiblePartyEmail,
             responsiblePartyName: siteInfo.responsiblePartyName,
-            triggerEmailId: msg.id,
-            triggerThreadId: parsed.threadId,
-            triggerMessageId: parsed.gmailMessageId,
-            triggerDate: now,
+            triggerEmail: {
+              emailId: msg.id,
+              threadId: parsed.threadId,
+              messageId: parsed.gmailMessageId,
+              receivedAt: now,
+            },
             nextCheckDate: nextCheck,
+          });
+
+          await ctx.runMutation(internal.processedMessages.create, {
+            messageId: msg.id,
+            siteId,
+            threadId: parsed.threadId ?? "",
+            processedAt: now,
+            action: "trigger_processed",
+            details: { address: siteInfo.address, created },
           });
 
           await ctx.runMutation(internal.auditLogs.create, {
             siteId,
-            action: "site_created",
+            action: created ? "site_created" : "trigger_added",
             details: { address: siteInfo.address, responsibleParty: siteInfo.responsiblePartyEmail, triggerEmailId: msg.id },
             level: "info",
           });
 
           await markAsRead(msg.id).catch(() => {});
           result.processed++;
-          logger.info("check-email: created site", { siteId, address: siteInfo.address });
+          logger.info(`check-email: ${created ? "created" : "updated"} site`, { siteId, address: siteInfo.address });
         } catch (error) {
           const errMsg = error instanceof Error ? error.message : String(error);
           logger.error("check-email: error processing message", { messageId: msg.id, error: errMsg });
@@ -110,9 +121,9 @@ export const run = internalAction({
           try {
             if (!msg.id) continue;
 
-            // Dedup check
-            const existing = await ctx.runQuery(internal.sites.getByTriggerEmailId, { emailId: msg.id });
-            if (existing) {
+            // Dedup via processedMessages
+            const already = await ctx.runQuery(internal.processedMessages.getByMessageId, { messageId: msg.id });
+            if (already) {
               await removeLabel(msg.id, importLabelId).catch(() => {});
               continue;
             }
@@ -150,16 +161,27 @@ export const run = internalAction({
             const now = Date.now();
             const nextCheck = addBusinessDays(new Date(now), SCHEDULING_CHECK_INTERVAL_DAYS).getTime();
 
-            const siteId = await ctx.runMutation(internal.sites.create, {
+            const { siteId, created } = await ctx.runMutation(internal.sites.findOrCreateByAddress, {
               siteAddress: siteInfo.address,
               normalizedAddress: normalizeAddress(siteInfo.address),
               responsiblePartyEmail: siteInfo.responsiblePartyEmail,
               responsiblePartyName: siteInfo.responsiblePartyName,
-              triggerEmailId: msg.id,
-              triggerThreadId: parsed.threadId,
-              triggerMessageId: parsed.gmailMessageId,
-              triggerDate: now,
+              triggerEmail: {
+                emailId: msg.id,
+                threadId: parsed.threadId,
+                messageId: parsed.gmailMessageId,
+                receivedAt: now,
+              },
               nextCheckDate: nextCheck,
+            });
+
+            await ctx.runMutation(internal.processedMessages.create, {
+              messageId: msg.id,
+              siteId,
+              threadId: parsed.threadId ?? "",
+              processedAt: now,
+              action: "trigger_imported",
+              details: { address: siteInfo.address, created },
             });
 
             const senderMatch = parsed.from.match(/<(.+?)>/);
@@ -173,7 +195,7 @@ export const run = internalAction({
 
             await ctx.runMutation(internal.auditLogs.create, {
               siteId,
-              action: "site_imported",
+              action: created ? "site_imported" : "trigger_added",
               details: {
                 address: siteInfo.address,
                 responsibleParty: siteInfo.responsiblePartyEmail,
@@ -185,7 +207,7 @@ export const run = internalAction({
 
             await removeLabel(msg.id, importLabelId).catch(() => {});
             result.processed++;
-            logger.info("check-email: imported site", { siteId, address: siteInfo.address });
+            logger.info(`check-email: ${created ? "imported" : "updated"} site`, { siteId, address: siteInfo.address });
           } catch (error) {
             const errMsg = error instanceof Error ? error.message : String(error);
             logger.error("check-email: import error", { messageId: msg.id, error: errMsg });

@@ -1,6 +1,6 @@
 # Email Agent Consolidation — Project Plan
 
-**Last updated:** March 13, 2026
+**Last updated:** March 16, 2026
 **Source document:** `email-agent-consolidation.docx`
 **Contributors:** Greg Foote, Andrea Ewalefo, Robbie Forrest, Devin Bates
 
@@ -13,11 +13,12 @@
 | Phase 1 | Foundation — schema, classifier, Gmail polling, auth | Built |
 | Phase 2 | Decision trees, templates, execute decisions cron | Built |
 | Frontend | Dashboard, review queue, vendor directory | Built |
-| Phase 3 | Send pipeline, escalation crons, draft digest | Not started |
+| Infra | Credential rotation, Gmail consolidation, site dedup, send pipeline | **Done (March 16)** |
+| Phase 3 | Escalation crons, draft digest, LLM drafts | Not started |
 | Phase 4 | Diff analysis, learning loop, gate evaluation | Not started |
 | Phase 5 | Graduated auto-send | Not started |
 
-**Nothing is live yet.** All new features activate only after `npx convex deploy` with the agent Gmail credentials set.
+**Deployed to prod.** Agent Gmail credentials set for `edu.ops@trilogy.com`. All crons currently disabled pending final validation.
 
 ---
 
@@ -25,16 +26,18 @@
 
 | Item | Owner | Status | Needed For |
 |------|-------|--------|------------|
-| `edu.ops@trilogy.com` Google Workspace account | IT team | Waiting | Everything — Gmail polling, sending |
-| Agent Gmail OAuth credentials (client ID, secret, refresh token) | IT team / Greg | Waiting | Convex env vars `AGENT_GMAIL_*` |
-| Google OAuth web client for dashboard sign-in | Greg | Not started | `.env.local` vars `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET` |
-| `AUTH_SECRET` (NextAuth session key) | Greg | Not started | Generate with `openssl rand -base64 32` |
+| `edu.ops@trilogy.com` Google Workspace account | IT team | **Done** | Gmail polling, sending |
+| Agent Gmail OAuth credentials | Greg | **Done** | Convex env vars `AGENT_GMAIL_*` |
+| Google OAuth web client for dashboard sign-in | Greg | **Done** | `.env.local` vars `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET` |
+| `AUTH_SECRET` (NextAuth session key) | Greg | **Done** | Session encryption |
+| Credential rotation (service account + OAuth secret) | Greg | **Done** | Security — old keys revoked |
+| Zack redirects trigger emails to edu.ops | Zack | **Pending** | checkEmail cron needs emails in edu.ops inbox |
 
-### To activate (once account is ready):
-1. Set `AGENT_GMAIL_CLIENT_ID`, `AGENT_GMAIL_CLIENT_SECRET`, `AGENT_GMAIL_REFRESH_TOKEN` in Convex dashboard
-2. Set `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`, `AUTH_SECRET` in `.env.local`
-3. Run `npx convex deploy`
-4. Run `vendors.seed` mutation from Convex dashboard
+### To re-enable system:
+1. Confirm Zack has redirected trigger emails to `edu.ops@trilogy.com`
+2. Uncomment crons in `convex/crons.ts`
+3. Re-enable Google Chat (`convex/services/googleChat.ts` — remove early return)
+4. Run `npx convex deploy`
 
 ---
 
@@ -58,6 +61,36 @@
 - **Inspection scheduling**: Moving to agent using current Worksmith process
 - **Calendar access**: Agent needs read access to DRI's Google Calendar for reschedule proposals (G-07); DRI is one of 7 team members, looked up via `assignedDRI` field
 - **E-04 dropped**: General report reminder to responsible party removed (E-03 to inspection contact is sufficient)
+
+---
+
+## Changes — March 16, 2026
+
+### Infrastructure & Security
+- **Credential rotation:** Revoked and regenerated Google service account key + OAuth client secret. Updated all Convex env vars.
+- **Gmail consolidation:** All actions (`checkEmail`, `checkScheduling`, `checkCompletion`, `checkReplies`) migrated from legacy `gmail.ts` to `agentGmail.ts`. Single set of credentials (`AGENT_GMAIL_*`) for `edu.ops@trilogy.com`.
+- **Crons disabled:** All 6 crons commented out pending validation and Zack's email redirect.
+
+### Code Review Fixes
+- **C2: `adminUpdate` hardened** — Replaced `v.any()` with explicit typed field validators in `convex/sites.ts`
+- **C3: JSON.parse error handling** — Added try-catch to `emailClassifier.ts`, `googleDrive.ts`, `googleSheets.ts`
+- **I5: Model ID** — Changed hardcoded `claude-sonnet-4-6-20250514` to stable alias `claude-sonnet-4-6`
+- **I6: CLAUDE.md updated** — Added all 6 crons, email agent env vars, 12-table database section
+
+### Send Pipeline (Phase 3 partial)
+- **Reviewer sync wired** — `reviewers.syncFromOAuth` public mutation called from NextAuth `signIn` callback. Reviewers auto-created/updated on Google sign-in.
+- **Approve/Edit/Reject mutations** — `draftEmails.approve`, `draftEmails.editAndSend`, `draftEmails.reject` public mutations with reviewer lookup
+- **Send action** — `sendDraftEmail.sendApproved` internal action sends via `agentGmail.sendEmail()` with thread context, audit logged
+- **Review page wired** — Buttons call real mutations, show loading/error states, redirect on success
+
+### Site Data Model Redesign
+- **One site per address** — Added `triggerEmails` array field to track multiple trigger emails per site
+- **Address-based dedup** — New `sites.findOrCreateByAddress` mutation: exact match on `normalizedAddress` index → prefix match → fuzzy match (0.85 threshold) → create new
+- **checkEmail migrated** — Uses `findOrCreateByAddress` + `processedMessages` dedup (replaces `getByTriggerEmailId`)
+- **checkReplies migrated** — Iterates all trigger threads per site (from `triggerEmails[]`)
+- **checkScheduling/checkCompletion** — Thread opts use latest trigger email
+- **Migration run** — `migrateSites.run` merged duplicates in prod, rewrote foreign keys
+- **Dashboard dedup removed** — No longer needed; one record per address in the database
 
 ---
 
@@ -129,12 +162,34 @@
 
 ---
 
+## Next Up (Priority Order)
+
+### Immediate — Before Re-enabling Crons
+1. **Zack email redirect** — Confirm trigger emails now go to `edu.ops@trilogy.com`
+2. **Re-enable Google Chat** — Remove early return in `googleChat.ts`
+3. **Re-enable crons** — Uncomment in `crons.ts`, deploy
+4. **End-to-end validation** — Send a test trigger email, verify site creation, scheduling check, and Chat notification
+
+### Short-term — Complete Phase 3
+5. **Edit distance tracking** — Compute Levenshtein distance between original and edited draft body on `editAndSend`
+6. **LLM draft generator** — For `vendor_scheduling`, `vendor_completion`, `vendor_question` classifications that don't have fixed templates
+7. **Follow-up timer logic** — Set `timerDeadline` on email threads based on SLA rules
+8. **`checkEscalations` cron** — Fire follow-up templates when thread timers expire
+9. **`draftDigest` cron** — Post pending draft summary to Google Chat every 4 hours
+
+### Medium-term — Schema Cleanup
+10. **Remove legacy trigger fields** — Drop `triggerEmailId`, `triggerThreadId`, `triggerMessageId` from schema and remove `by_triggerEmailId`/`by_triggerThreadId` indexes
+11. **Remove legacy `gmail.ts`** — Dead code, no longer imported
+12. **Refactor `checkReplies.ts`** — 277-line function → extract helpers (from code review I3)
+
+---
+
 ## What's Left
 
 ### Phase 3: Send Pipeline + Escalation Crons
 
-- [ ] Wire review dashboard Approve/Edit/Reject buttons to Convex mutations + `agentGmail.sendEmail()`
-- [ ] Populate `sentBody`/`sentTo`/`sentCc` on `draftEmails` after send
+- [x] Wire review dashboard Approve/Edit/Reject buttons to Convex mutations + `agentGmail.sendEmail()`
+- [x] Populate `sentBody`/`sentTo`/`sentCc` on `draftEmails` after send
 - [ ] Compute `editsMade` and `editDistance` on edited drafts
 - [ ] LLM draft generator for classifications without fixed templates (vendor_scheduling, vendor_completion, vendor_question)
 - [ ] `checkEscalations` cron (1h) — fire follow-up templates when thread timers expire

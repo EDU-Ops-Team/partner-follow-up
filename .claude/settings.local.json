@@ -13,7 +13,30 @@
       "Bash(npm:*)",
       "Bash(rm:*)",
       "Bash(openssl rand:*)",
-      "Bash(npx convex:*)"
+      "Bash(npx convex:*)",
+      "Bash(gh auth:*)",
+      "Bash(gh repo:*)",
+      "WebFetch(domain:vendor-scheduler.vercel.app)",
+      "Bash(curl:*)",
+      "Bash(do echo:*)",
+      "WebFetch(domain:airtable.com)",
+      "Bash(CONVEX_DEPLOYMENT=prod:scintillating-schnauzer-916 npx convex:*)",
+      "Bash(do CONVEX_DEPLOYMENT=prod:scintillating-schnauzer-916:*)",
+      "Bash(gh api:*)",
+      "Bash(NEXT_PUBLIC_CONVEX_URL=https://scintillating-schnauzer-916.convex.cloud npm run:*)",
+      "Read(//tmp/**)",
+      "Bash(CONVEX_URL=https://scintillating-schnauzer-916.convex.cloud npx convex:*)",
+      "Bash(do npx:*)",
+      "Bash(node:*)",
+      "Bash(cd \"/c/Dev/Work/repos/vendor follow up\" && python -X utf8 -c \"\nimport zipfile\nfrom xml.etree import ElementTree as ET\n\nwith zipfile.ZipFile\\('email-agent-consolidation.docx'\\) as z:\n    xml = z.read\\('word/document.xml'\\)\n    tree = ET.fromstring\\(xml\\)\n    ns = {'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'}\n    lines = []\n    for p in tree.findall\\('.//w:p', ns\\):\n        texts = [t.text for t in p.findall\\('.//w:t', ns\\) if t.text]\n        line = ''.join\\(texts\\)\n        lines.append\\(line\\)\n    full = '\\\\n'.join\\(lines\\)\n    mid = len\\(full\\) // 2\n    print\\(full[mid:]\\)\n\")",
+      "Bash(cd \"/c/Dev/Work/repos/vendor follow up\" && npx tsc --noEmit 2>&1 | head -60)",
+      "Bash(cd \"/c/Dev/Work/repos/vendor follow up\" && npx tsc --noEmit 2>&1 | head -30)",
+      "Bash(cd \"/c/Dev/Work/repos/vendor follow up/convex/data\" && mv decision-trees decisionTrees)",
+      "Bash(cd \"/c/Dev/Work/repos/vendor follow up\" && npx tsc --noEmit 2>&1 | head -20)",
+      "Skill(check)",
+      "Bash(grep:*)",
+      "Bash(cd:*)",
+      "Bash(wc:*)"
     ]
   }
 }

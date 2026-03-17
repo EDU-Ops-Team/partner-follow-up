@@ -34,13 +34,16 @@ Both `npm run dev` and `npx convex dev` must be running during development.
 - `checkEmail` (every 15m) — polls Gmail for trigger emails, creates site records
 - `checkScheduling` (every 30m) — checks Airtable + Sheets for scheduling updates, sends reminders
 - `checkCompletion` (every 30m) — monitors LiDAR completion + report status, resolves sites
+- `checkReplies` (every 15m) — processes vendor replies on active threads, saves attachments to Drive
+- `classifyInbound` (every 15m) — classifies inbound emails via rules/LLM, creates email thread records
+- `executeDecisions` (every 15m) — runs decision trees on classified emails, creates draft replies
 
 **Function types:**
 - Public queries/mutations (`query`, `mutation`) — called from React frontend or admin API
 - Internal queries/mutations (`internalQuery`, `internalMutation`) — called only from actions
 - Internal actions (`internalAction`) — cron handlers that call external APIs
 
-**`"use node"` directive** is required on any file that imports Node.js packages (`googleapis`, `csv-parse`, `Buffer`). This includes all files in `convex/services/` and the three action files.
+**`"use node"` directive** is required on any file that imports Node.js packages (`googleapis`, `csv-parse`, `Buffer`). This includes all files in `convex/services/` and the six action files.
 
 **Site lifecycle:** `scheduling` → `completion` → `resolved`
 
@@ -74,6 +77,14 @@ Gmail trigger email
 - `GOOGLE_SERVICE_ACCOUNT_KEY` (base64-encoded full JSON file)
 - `GOOGLE_SHEET_ID`, `GOOGLE_SHEET_RANGE`, `GOOGLE_CHAT_WEBHOOK_URL`
 - `AIRTABLE_SHARED_VIEW_URL`
+- `AGENT_GMAIL_CLIENT_ID`, `AGENT_GMAIL_CLIENT_SECRET`, `AGENT_GMAIL_REFRESH_TOKEN` — OAuth for email agent inbox
+- `AGENT_GMAIL_SEND_AS` — sender address for agent emails (defaults to `edu.ops@trilogy.com`)
+- `ANTHROPIC_API_KEY` — Claude API key for LLM classification
+- `ANTHROPIC_MODEL` — optional model override (defaults to `claude-sonnet-4-6`)
+
+**In `.env.local` (Next.js, for auth dashboard):**
+- `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET` — Google OAuth for reviewer sign-in
+- `AUTH_SECRET` — NextAuth session encryption secret
 
 ## Testing
 
@@ -81,4 +92,4 @@ Tests live in `tests/unit/` and import directly from `convex/lib/` and `convex/s
 
 ## Database
 
-Four Convex tables defined in `convex/schema.ts`: `sites` (main tracking), `auditLogs` (action history), `gmailSyncState` (Gmail poll cursor), `holidays` (US federal holidays, seeded via `holidays.seed` mutation).
+Ten Convex tables defined in `convex/schema.ts`: `sites` (main tracking), `auditLogs` (action history), `gmailSyncState` (Gmail poll cursor), `holidays` (US federal holidays, seeded via `holidays.seed` mutation), `emailClassifications` (inbound email classification results), `emailThreads` (thread state tracking), `vendors` (vendor contacts & categories), `jurisdictions` (government entities), `draftEmails` (generated reply drafts for review), `decisionLogs` (decision tree audit trail), `classificationGates` (learning loop metrics), `reviewers` (OAuth-authenticated reviewers).

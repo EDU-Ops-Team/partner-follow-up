@@ -9,7 +9,7 @@ import {
 import { fetchAirtableData } from "./services/airtableScraper";
 import { fetchInspectionData } from "./services/googleSheets";
 import { postToChat } from "./services/googleChat";
-import { sendEmail, type ThreadingOptions } from "./services/gmail";
+import { sendEmail, type ThreadingOptions } from "./services/agentGmail";
 import { matchAddress } from "./lib/addressNormalizer";
 import { addBusinessDays } from "./lib/businessDays";
 import {
@@ -58,10 +58,11 @@ export const run = internalAction({
 
       for (const site of dueSites) {
         try {
-          const threadOpts: ThreadingOptions | undefined = site.triggerThreadId ? {
-            threadId: site.triggerThreadId,
-            inReplyTo: site.triggerMessageId,
-            references: site.triggerMessageId,
+          const latestTrigger = site.triggerEmails?.[site.triggerEmails.length - 1];
+          const threadOpts: ThreadingOptions | undefined = (latestTrigger?.threadId ?? site.triggerThreadId) ? {
+            threadId: latestTrigger?.threadId ?? site.triggerThreadId,
+            inReplyTo: latestTrigger?.messageId ?? site.triggerMessageId,
+            references: latestTrigger?.messageId ?? site.triggerMessageId,
           } : undefined;
 
           let lidarComplete = site.lidarJobStatus === "complete";

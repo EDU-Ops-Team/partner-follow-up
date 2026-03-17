@@ -6,6 +6,9 @@ import {
   AGENT_GMAIL_QUERY,
   AGENT_POLL_BATCH_SIZE,
   BODY_PREVIEW_LENGTH,
+  INTERNAL_DOMAINS,
+  SKIP_SENDERS,
+  SKIP_SUBJECT_PATTERNS,
 } from "./lib/constants";
 import {
   listMessages,
@@ -65,9 +68,20 @@ export const run = internalAction({
           continue;
         }
 
-        // Look up vendor by sender email
+        // Skip automated/system emails
         const senderEmail = parsed.from.match(/<([^>]+)>/)?.[1]?.toLowerCase()
           ?? parsed.from.toLowerCase().trim();
+        const isSkippedSender = SKIP_SENDERS.some((pattern) =>
+          pattern.includes("@")
+            ? senderEmail === pattern || senderEmail.endsWith(pattern)
+            : senderEmail.includes(pattern)
+        );
+        const isSkippedSubject = SKIP_SUBJECT_PATTERNS.some((p) => p.test(parsed.subject));
+        if (isSkippedSender || isSkippedSubject) {
+          logger.info("Skipping automated email", { messageId, from: senderEmail, subject: parsed.subject });
+          await markAsRead(messageId);
+          continue;
+        }
         const vendorDoc = await ctx.runQuery(
           internal.vendors.getByContactEmail,
           { email: senderEmail }
@@ -108,6 +122,34 @@ export const run = internalAction({
           ...context.extractedEntities,
         };
 
+        // Auto-detect new partner if sender is external and not already matched
+        const PARTNER_LIKE_TYPES = [
+          "vendor_scheduling", "vendor_completion", "vendor_question",
+          "vendor_invoice", "inspection_report",
+        ];
+        let autoDetectedVendorId: Id<"vendors"> | undefined;
+        if (
+          !vendorDoc &&
+          !INTERNAL_DOMAINS.some((d) => senderEmail.endsWith(`@${d}`)) &&
+          !SKIP_SENDERS.some((p) =>
+            p.includes("@")
+              ? senderEmail === p || senderEmail.endsWith(p)
+              : senderEmail.includes(p)
+          ) &&
+          PARTNER_LIKE_TYPES.includes(classification.classificationType)
+        ) {
+          const displayName = parsed.from.match(/^"?([^"<]+)"?\s*</)?.[1]?.trim()
+            ?? senderEmail.split("@")[0];
+          autoDetectedVendorId = await ctx.runMutation(
+            internal.vendors.autoCreate,
+            { name: displayName, email: senderEmail, category: "other" }
+          );
+        }
+
+        const resolvedVendorId = (context.matchedVendorId as Id<"vendors">)
+          ?? autoDetectedVendorId
+          ?? undefined;
+
         // Create classification record
         await ctx.runMutation(internal.emailClassifications.create, {
           gmailMessageId: messageId,
@@ -124,7 +166,7 @@ export const run = internalAction({
           confidence: classification.confidence,
           extractedEntities: mergedEntities,
           matchedSiteIds: context.matchedSiteIds as Id<"sites">[],
-          matchedVendorId: (context.matchedVendorId as Id<"vendors">) ?? undefined,
+          matchedVendorId: resolvedVendorId,
           action: "pending",
           status: "classified",
         });
@@ -150,9 +192,7 @@ export const run = internalAction({
               messageCount: existingThread.messageCount + 1,
               participants: [...new Set([...existingThread.participants, ...uniqueParticipants])],
               linkedSiteIds: updatedSiteIds,
-              linkedVendorId: context.matchedVendorId
-                ? (context.matchedVendorId as Id<"vendors">)
-                : existingThread.linkedVendorId,
+              linkedVendorId: resolvedVendorId ?? existingThread.linkedVendorId,
             },
           });
         } else {
@@ -162,7 +202,7 @@ export const run = internalAction({
             subject: parsed.subject,
             participants: uniqueParticipants,
             linkedSiteIds: context.matchedSiteIds as Id<"sites">[],
-            linkedVendorId: (context.matchedVendorId as Id<"vendors">) ?? undefined,
+            linkedVendorId: resolvedVendorId,
             state: "active",
             lastMessageAt: parsed.date.getTime(),
             messageCount: 1,

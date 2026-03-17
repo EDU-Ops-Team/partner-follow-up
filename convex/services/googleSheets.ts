@@ -6,8 +6,14 @@ import { withRetry } from "../lib/retry";
 import type { InspectionRow } from "../lib/types";
 
 function getAuth() {
-  const keyJson = Buffer.from(process.env.GOOGLE_SERVICE_ACCOUNT_KEY!, "base64").toString("utf-8");
-  const key = JSON.parse(keyJson);
+  const raw = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
+  if (!raw) throw new Error("Missing env var: GOOGLE_SERVICE_ACCOUNT_KEY");
+  let key: Record<string, unknown>;
+  try {
+    key = JSON.parse(Buffer.from(raw, "base64").toString("utf-8"));
+  } catch {
+    throw new Error("GOOGLE_SERVICE_ACCOUNT_KEY is not valid base64 JSON");
+  }
   return new google.auth.GoogleAuth({
     credentials: key,
     scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"],

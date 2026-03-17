@@ -229,7 +229,7 @@ export async function classifyByLLM(
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error("Missing env var: ANTHROPIC_API_KEY");
 
-  const model = process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-6-20250514";
+  const model = process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-6";
 
   const userMessage = [
     `From: ${email.from}`,
@@ -256,8 +256,19 @@ export async function classifyByLLM(
       throw new Error("No text content in Claude classification response");
     }
 
-    const parsed = JSON.parse(textBlock.text);
-    const classificationType = CLASSIFICATION_TYPES.includes(parsed.classificationType)
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(textBlock.text);
+    } catch {
+      logger.error("Failed to parse LLM classification JSON", {
+        raw: textBlock.text.slice(0, 200),
+      });
+      throw new Error("LLM returned invalid JSON for classification");
+    }
+
+    const classificationType = CLASSIFICATION_TYPES.includes(
+      parsed.classificationType as ClassificationType
+    )
       ? parsed.classificationType
       : "unknown";
 
@@ -271,7 +282,7 @@ export async function classifyByLLM(
       classificationType: classificationType as ClassificationType,
       classificationMethod: "llm" as const,
       confidence: typeof parsed.confidence === "number" ? parsed.confidence : 0.5,
-      extractedEntities: parsed.extractedEntities ?? {},
+      extractedEntities: (parsed.extractedEntities as ExtractedEntities) ?? {},
     };
   }, { maxRetries: 2, context: "classification-llm" });
 }

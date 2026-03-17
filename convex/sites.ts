@@ -1,5 +1,7 @@
 import { query, mutation, internalQuery, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
+import { similarity, normalizeAddress } from "./lib/addressNormalizer";
+import { ADDRESS_MATCH_THRESHOLD } from "./lib/constants";
 
 // ── Public Queries (for dashboard) ──
 
@@ -98,6 +100,83 @@ export const create = internalMutation({
   },
 });
 
+export const findOrCreateByAddress = internalMutation({
+  args: {
+    siteAddress: v.string(),
+    normalizedAddress: v.string(),
+    responsiblePartyEmail: v.string(),
+    responsiblePartyName: v.optional(v.string()),
+    triggerEmail: v.object({
+      emailId: v.string(),
+      threadId: v.optional(v.string()),
+      messageId: v.optional(v.string()),
+      receivedAt: v.number(),
+    }),
+    nextCheckDate: v.number(),
+  },
+  handler: async (ctx, args) => {
+    // 1. Exact match on normalizedAddress index
+    const exact = await ctx.db
+      .query("sites")
+      .withIndex("by_normalizedAddress", (q) => q.eq("normalizedAddress", args.normalizedAddress))
+      .first();
+
+    if (exact) {
+      const triggers = exact.triggerEmails ?? [];
+      if (!triggers.some((t) => t.emailId === args.triggerEmail.emailId)) {
+        triggers.push(args.triggerEmail);
+      }
+      await ctx.db.patch(exact._id, { triggerEmails: triggers });
+      return { siteId: exact._id, created: false };
+    }
+
+    // 2. Prefix or fuzzy match against all sites
+    const allSites = await ctx.db.query("sites").collect();
+    for (const site of allSites) {
+      const a = args.normalizedAddress;
+      const b = site.normalizedAddress;
+      const isPrefix = a.startsWith(b) || b.startsWith(a);
+      const isFuzzy = !isPrefix && similarity(a, b) >= ADDRESS_MATCH_THRESHOLD;
+      if (isPrefix || isFuzzy) {
+        const triggers = site.triggerEmails ?? [];
+        if (!triggers.some((t) => t.emailId === args.triggerEmail.emailId)) {
+          triggers.push(args.triggerEmail);
+        }
+        // Update address if new one looks more complete
+        const updates: Record<string, unknown> = { triggerEmails: triggers };
+        if (args.siteAddress.length > (site.siteAddress?.length ?? 0) && !site.fullAddress) {
+          updates.siteAddress = args.siteAddress;
+          updates.normalizedAddress = args.normalizedAddress;
+        }
+        await ctx.db.patch(site._id, updates);
+        return { siteId: site._id, created: false };
+      }
+    }
+
+    // 3. No match — create new site
+    const siteId = await ctx.db.insert("sites", {
+      siteAddress: args.siteAddress,
+      normalizedAddress: args.normalizedAddress,
+      responsiblePartyEmail: args.responsiblePartyEmail,
+      responsiblePartyName: args.responsiblePartyName,
+      triggerEmails: [args.triggerEmail],
+      triggerDate: args.triggerEmail.receivedAt,
+      nextCheckDate: args.nextCheckDate,
+      phase: "scheduling",
+      lidarScheduled: false,
+      lidarCompleteNotified: false,
+      inspectionScheduled: false,
+      reportReceived: false,
+      reportLinkNotified: false,
+      reportReminderCount: 0,
+      schedulingReminderCount: 0,
+      bothScheduledNotified: false,
+      resolved: false,
+    });
+    return { siteId, created: true };
+  },
+});
+
 export const update = internalMutation({
   args: {
     id: v.id("sites"),
@@ -153,17 +232,39 @@ export const getActiveThreadedSites = internalQuery({
       .query("sites")
       .filter((q) => q.neq(q.field("phase"), "resolved"))
       .collect();
-    return all.filter((s) => s.triggerThreadId);
+    // Site has threads if legacy triggerThreadId is set OR triggerEmails has entries with threadId
+    return all.filter((s) =>
+      s.triggerThreadId ||
+      (s.triggerEmails && s.triggerEmails.some((t) => t.threadId))
+    );
   },
 });
 
 export const adminUpdate = mutation({
   args: {
     id: v.id("sites"),
-    updates: v.any(),
+    updates: v.object({
+      phase: v.optional(v.union(
+        v.literal("scheduling"),
+        v.literal("completion"),
+        v.literal("resolved")
+      )),
+      lidarScheduled: v.optional(v.boolean()),
+      inspectionScheduled: v.optional(v.boolean()),
+      reportReceived: v.optional(v.boolean()),
+      reportLink: v.optional(v.string()),
+      resolved: v.optional(v.boolean()),
+      nextCheckDate: v.optional(v.number()),
+    }),
   },
   handler: async (ctx, { id, updates }) => {
-    await ctx.db.patch(id, updates);
+    // Strip undefined optional fields before patching
+    const patch: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(updates)) {
+      if (value !== undefined) patch[key] = value;
+    }
+    if (Object.keys(patch).length === 0) return ctx.db.get(id);
+    await ctx.db.patch(id, patch);
     return ctx.db.get(id);
   },
 });

@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { useQuery } from "convex/react";
+import { useQuery, useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";
+import type { Id } from "../../convex/_generated/dataModel";
 
-type Tab = "sites" | "inbound" | "threads";
+// ── Badges ──
 
 function phaseBadge(phase: string) {
   const colors: Record<string, string> = {
@@ -67,23 +68,36 @@ function threadStateBadge(state: string) {
   );
 }
 
+function draftStatusBadge(status: string) {
+  const colors: Record<string, string> = {
+    pending: "bg-yellow-100 text-yellow-800",
+    approved: "bg-green-100 text-green-800",
+    edited: "bg-blue-100 text-blue-800",
+    rejected: "bg-red-100 text-red-800",
+    auto_sent: "bg-gray-100 text-gray-600",
+    expired: "bg-gray-100 text-gray-500",
+  };
+  return (
+    <span className={`inline-block px-2 py-1 rounded text-xs font-medium ${colors[status] ?? "bg-gray-100"}`}>
+      {status.replace(/_/g, " ")}
+    </span>
+  );
+}
+
+// ── Helpers ──
+
 function formatDatetime(ms?: number) {
   if (!ms) return null;
   return new Date(ms).toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
+    month: "short", day: "numeric", year: "numeric",
+    hour: "numeric", minute: "2-digit",
   });
 }
 
 function formatDate(ms?: number) {
   if (!ms) return null;
   return new Date(ms).toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
+    month: "short", day: "numeric", year: "numeric",
   });
 }
 
@@ -108,7 +122,233 @@ function extractSenderName(from: string): string {
   return from.split("@")[0];
 }
 
-// ── Sites Tab ──
+// ── Site Card Expansion ──
+
+function SiteExpansion({ siteId }: { siteId: Id<"sites"> }) {
+  const classifications = useQuery(api.emailClassifications.listBySiteId, { siteId });
+  const threads = useQuery(api.emailThreads.listBySiteId, { siteId });
+  const drafts = useQuery(api.draftEmails.listBySiteId, { siteId });
+
+  const loading = classifications === undefined || threads === undefined || drafts === undefined;
+  if (loading) {
+    return <div className="text-gray-400 text-sm py-3">Loading activity...</div>;
+  }
+
+  const hasContent = classifications.length > 0 || threads.length > 0 || drafts.length > 0;
+  if (!hasContent) {
+    return <div className="text-gray-400 text-sm py-3">No linked activity yet</div>;
+  }
+
+  // Build unified timeline
+  type TimelineItem =
+    | { kind: "message"; time: number; data: typeof classifications[number] }
+    | { kind: "thread"; time: number; data: typeof threads[number] }
+    | { kind: "draft"; time: number; data: typeof drafts[number] };
+
+  const items: TimelineItem[] = [
+    ...classifications.map((c) => ({ kind: "message" as const, time: c.receivedAt, data: c })),
+    ...threads.map((t) => ({ kind: "thread" as const, time: t.lastMessageAt, data: t })),
+    ...drafts.map((d) => ({ kind: "draft" as const, time: d.createdAt, data: d })),
+  ].sort((a, b) => b.time - a.time);
+
+  return (
+    <div className="mt-4 border-t border-gray-100 pt-4 space-y-2">
+      <h3 className="text-xs font-medium text-gray-500 uppercase mb-2">Activity Timeline</h3>
+      {items.map((item, i) => {
+        if (item.kind === "message") {
+          const c = item.data;
+          return (
+            <div key={`msg-${c._id}`} className="flex items-start gap-3 py-2 px-3 bg-gray-50 rounded text-sm">
+              <div className="w-1.5 h-1.5 rounded-full bg-blue-400 mt-2 shrink-0" />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-medium">{extractSenderName(c.from)}</span>
+                  {classificationBadge(c.classificationType)}
+                  {confidenceBadge(c.confidence)}
+                  <span className="text-xs text-gray-400 ml-auto">{timeAgo(c.receivedAt)}</span>
+                </div>
+                <div className="text-gray-700 mt-0.5">{c.subject}</div>
+                <div className="text-xs text-gray-500 line-clamp-1 mt-0.5">{c.bodyPreview}</div>
+              </div>
+            </div>
+          );
+        }
+        if (item.kind === "thread") {
+          const t = item.data;
+          return (
+            <div key={`thread-${t._id}`} className="flex items-start gap-3 py-2 px-3 bg-gray-50 rounded text-sm">
+              <div className="w-1.5 h-1.5 rounded-full bg-purple-400 mt-2 shrink-0" />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-medium truncate">{t.subject}</span>
+                  {threadStateBadge(t.state)}
+                  <span className="text-xs text-gray-400 ml-auto">{timeAgo(t.lastMessageAt)}</span>
+                </div>
+                <div className="text-xs text-gray-500 mt-0.5">
+                  {t.messageCount} message{t.messageCount !== 1 ? "s" : ""} &middot; {t.participants.length} participant{t.participants.length !== 1 ? "s" : ""}
+                </div>
+              </div>
+            </div>
+          );
+        }
+        // draft
+        const d = item.data;
+        return (
+          <div key={`draft-${d._id}`} className="flex items-start gap-3 py-2 px-3 bg-yellow-50 rounded text-sm">
+            <div className="w-1.5 h-1.5 rounded-full bg-yellow-400 mt-2 shrink-0" />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-medium">Draft reply</span>
+                {draftStatusBadge(d.status)}
+                <span className="text-xs text-gray-400 ml-auto">{timeAgo(d.createdAt)}</span>
+              </div>
+              <div className="text-gray-700 mt-0.5">To: {d.originalTo}</div>
+              <div className="text-xs text-gray-500 line-clamp-1 mt-0.5">{d.originalSubject}</div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Site Card ──
+
+function SiteCard({ site }: { site: {
+  _id: Id<"sites">;
+  siteAddress: string;
+  fullAddress?: string;
+  phase: string;
+  resolved: boolean;
+  nextCheckDate: number;
+  lidarScheduled: boolean;
+  lidarScheduledDatetime?: number;
+  lidarJobStatus?: string;
+  inspectionScheduled: boolean;
+  inspectionDate?: string;
+  inspectionTime?: string;
+  reportDueDate?: string;
+  reportReceived: boolean;
+  reportLink?: string;
+  responsiblePartyName?: string;
+  inspectionContactName?: string;
+  triggerDate: number;
+  schedulingReminderCount: number;
+  reportReminderCount: number;
+} }) {
+  const [expanded, setExpanded] = useState(false);
+
+  // Count linked messages for badge
+  const classifications = useQuery(api.emailClassifications.listBySiteId, { siteId: site._id });
+  const messageCount = classifications?.length ?? 0;
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg hover:shadow-sm">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full text-left p-5"
+      >
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <h2 className="text-lg font-semibold">{site.fullAddress ?? site.siteAddress}</h2>
+            <span className={phaseBadge(site.phase)}>{site.phase}</span>
+            {messageCount > 0 && (
+              <span className="inline-flex items-center justify-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700">
+                {messageCount} msg{messageCount !== 1 ? "s" : ""}
+              </span>
+            )}
+            <span className="text-gray-400 text-sm">{expanded ? "\u25B2" : "\u25BC"}</span>
+          </div>
+          <div className="text-sm text-gray-500">
+            {site.resolved ? "Resolved" : `Next check: ${formatDate(site.nextCheckDate)}`}
+          </div>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="border border-gray-100 rounded p-3">
+            <h3 className="text-xs font-medium text-gray-500 uppercase mb-2">LiDAR</h3>
+            <div className="space-y-1 text-sm">
+              <div className="flex justify-between">
+                <span className="text-gray-500">Status</span>
+                <span className={statusDot(site.lidarScheduled)}>
+                  {site.lidarJobStatus === "complete" ? "Complete" : site.lidarScheduled ? "Scheduled" : "Not scheduled"}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Scheduled Date</span>
+                <span className={site.lidarScheduledDatetime ? "text-gray-800" : "text-gray-400 italic"}>
+                  {formatDatetime(site.lidarScheduledDatetime) ?? "empty"}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Job Status</span>
+                <span className="text-gray-800 capitalize">{site.lidarJobStatus ?? "\u2014"}</span>
+              </div>
+            </div>
+          </div>
+          <div className="border border-gray-100 rounded p-3">
+            <h3 className="text-xs font-medium text-gray-500 uppercase mb-2">Building Inspection</h3>
+            <div className="space-y-1 text-sm">
+              <div className="flex justify-between">
+                <span className="text-gray-500">Status</span>
+                <span className={statusDot(site.inspectionScheduled)}>
+                  {site.inspectionScheduled ? "Scheduled" : "Not scheduled"}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Inspection Date</span>
+                <span className="text-gray-800">{site.inspectionDate ?? "\u2014"}{site.inspectionTime ? ` at ${site.inspectionTime}` : ""}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Report Due</span>
+                <span className="text-gray-800">{site.reportDueDate ?? "\u2014"}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Report</span>
+                <span className={site.reportReceived ? "text-green-600" : "text-gray-400"}>
+                  {site.reportReceived ? (
+                    site.reportLink ? (
+                      <a href={site.reportLink} target="_blank" rel="noopener noreferrer" className="text-green-600 underline" onClick={(e) => e.stopPropagation()}>Received</a>
+                    ) : "Received"
+                  ) : "Pending"}
+                </span>
+              </div>
+            </div>
+          </div>
+          <div className="border border-gray-100 rounded p-3">
+            <h3 className="text-xs font-medium text-gray-500 uppercase mb-2">Tracking</h3>
+            <div className="space-y-1 text-sm">
+              <div className="flex justify-between">
+                <span className="text-gray-500">Responsible Party</span>
+                <span className="text-gray-800">{site.responsiblePartyName ?? "\u2014"}</span>
+              </div>
+              {site.inspectionContactName && (
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Inspection Contact</span>
+                  <span className="text-gray-800">{site.inspectionContactName}</span>
+                </div>
+              )}
+              <div className="flex justify-between">
+                <span className="text-gray-500">Triggered</span>
+                <span className="text-gray-800">{formatDate(site.triggerDate)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Reminders</span>
+                <span className="text-gray-800">{site.schedulingReminderCount + site.reportReminderCount}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </button>
+      {expanded && (
+        <div className="px-5 pb-5">
+          <SiteExpansion siteId={site._id} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Sites View ──
 
 function SitesView() {
   const siteList = useQuery(api.sites.list);
@@ -128,110 +368,26 @@ function SitesView() {
   return (
     <div className="space-y-4">
       {siteList.map((site) => (
-        <div key={site._id} className="bg-white border border-gray-200 rounded-lg p-5 hover:shadow-sm">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-3">
-              <h2 className="text-lg font-semibold">{site.fullAddress ?? site.siteAddress}</h2>
-              <span className={phaseBadge(site.phase)}>{site.phase}</span>
-            </div>
-            <div className="text-sm text-gray-500">
-              {site.resolved ? "Resolved" : `Next check: ${formatDate(site.nextCheckDate)}`}
-            </div>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="border border-gray-100 rounded p-3">
-              <h3 className="text-xs font-medium text-gray-500 uppercase mb-2">LiDAR</h3>
-              <div className="space-y-1 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-gray-500">Status</span>
-                  <span className={statusDot(site.lidarScheduled)}>
-                    {site.lidarJobStatus === "complete" ? "Complete" : site.lidarScheduled ? "Scheduled" : "Not scheduled"}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-500">Scheduled Date</span>
-                  <span className={site.lidarScheduledDatetime ? "text-gray-800" : "text-gray-400 italic"}>
-                    {formatDatetime(site.lidarScheduledDatetime) ?? "empty"}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-500">Job Status</span>
-                  <span className="text-gray-800 capitalize">{site.lidarJobStatus ?? "—"}</span>
-                </div>
-              </div>
-            </div>
-            <div className="border border-gray-100 rounded p-3">
-              <h3 className="text-xs font-medium text-gray-500 uppercase mb-2">Building Inspection</h3>
-              <div className="space-y-1 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-gray-500">Status</span>
-                  <span className={statusDot(site.inspectionScheduled)}>
-                    {site.inspectionScheduled ? "Scheduled" : "Not scheduled"}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-500">Inspection Date</span>
-                  <span className="text-gray-800">{site.inspectionDate ?? "—"}{site.inspectionTime ? ` at ${site.inspectionTime}` : ""}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-500">Report Due</span>
-                  <span className="text-gray-800">{site.reportDueDate ?? "—"}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-500">Report</span>
-                  <span className={site.reportReceived ? "text-green-600" : "text-gray-400"}>
-                    {site.reportReceived ? (
-                      site.reportLink ? (
-                        <a href={site.reportLink} target="_blank" rel="noopener noreferrer" className="text-green-600 underline">Received</a>
-                      ) : "Received"
-                    ) : "Pending"}
-                  </span>
-                </div>
-              </div>
-            </div>
-            <div className="border border-gray-100 rounded p-3">
-              <h3 className="text-xs font-medium text-gray-500 uppercase mb-2">Tracking</h3>
-              <div className="space-y-1 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-gray-500">Responsible Party</span>
-                  <span className="text-gray-800">{site.responsiblePartyName ?? "—"}</span>
-                </div>
-                {site.inspectionContactName && (
-                  <div className="flex justify-between">
-                    <span className="text-gray-500">Inspection Contact</span>
-                    <span className="text-gray-800">{site.inspectionContactName}</span>
-                  </div>
-                )}
-                <div className="flex justify-between">
-                  <span className="text-gray-500">Triggered</span>
-                  <span className="text-gray-800">{formatDate(site.triggerDate)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-500">Reminders</span>
-                  <span className="text-gray-800">{site.schedulingReminderCount + site.reportReminderCount}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+        <SiteCard key={site._id} site={site} />
       ))}
     </div>
   );
 }
 
-// ── Inbound Feed Tab ──
+// ── Inbound Feed (unmatched only) ──
 
 function InboundFeed() {
-  const classifications = useQuery(api.emailClassifications.list, { limit: 100 });
+  const classifications = useQuery(api.emailClassifications.listUnmatched, { limit: 100 });
+  const archiveMutation = useMutation(api.emailClassifications.archive);
 
   if (classifications === undefined) {
-    return <div className="text-gray-400 py-8 text-center">Loading classifications...</div>;
+    return <div className="text-gray-400 py-8 text-center">Loading inbound...</div>;
   }
 
   if (classifications.length === 0) {
     return (
       <div className="bg-white border border-gray-200 rounded-lg px-4 py-8 text-center text-gray-400">
-        No classified emails yet. The agent will begin classifying once it has access to edu.ops@trilogy.com.
+        No unmatched inbound emails
       </div>
     );
   }
@@ -247,62 +403,22 @@ function InboundFeed() {
               {methodBadge(c.classificationMethod)}
               {confidenceBadge(c.confidence)}
             </div>
-            <span className="text-xs text-gray-400">{timeAgo(c.receivedAt)}</span>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-gray-400">{timeAgo(c.receivedAt)}</span>
+              <button
+                onClick={() => archiveMutation({ id: c._id })}
+                className="text-xs px-2 py-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors"
+                title="Archive"
+              >
+                Dismiss
+              </button>
+            </div>
           </div>
           <div className="text-sm font-medium text-gray-800 mb-1">{c.subject}</div>
           <div className="text-xs text-gray-500 line-clamp-2">{c.bodyPreview}</div>
           <div className="flex items-center gap-3 mt-2 text-xs text-gray-400">
             <span>Status: {c.status}</span>
-            {c.matchedSiteIds.length > 0 && (
-              <span>{c.matchedSiteIds.length} site{c.matchedSiteIds.length > 1 ? "s" : ""} matched</span>
-            )}
-            {c.matchedVendorId && <span>Vendor matched</span>}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// ── Threads Tab ──
-
-function ThreadsView() {
-  const threads = useQuery(api.emailThreads.list, {});
-
-  if (threads === undefined) {
-    return <div className="text-gray-400 py-8 text-center">Loading threads...</div>;
-  }
-
-  if (threads.length === 0) {
-    return (
-      <div className="bg-white border border-gray-200 rounded-lg px-4 py-8 text-center text-gray-400">
-        No email threads tracked yet.
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-2">
-      {threads.map((t) => (
-        <div key={t._id} className="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-sm">
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-2">
-              <span className="font-medium text-sm truncate max-w-md">{t.subject}</span>
-              {threadStateBadge(t.state)}
-            </div>
-            <span className="text-xs text-gray-400">{timeAgo(t.lastMessageAt)}</span>
-          </div>
-          <div className="flex items-center gap-3 text-xs text-gray-500">
-            <span>{t.messageCount} message{t.messageCount !== 1 ? "s" : ""}</span>
-            <span>{t.participants.length} participant{t.participants.length !== 1 ? "s" : ""}</span>
-            {t.linkedSiteIds.length > 0 && (
-              <span>{t.linkedSiteIds.length} site{t.linkedSiteIds.length > 1 ? "s" : ""}</span>
-            )}
-            {t.timerDeadline && (
-              <span className={t.timerDeadline < Date.now() ? "text-red-500 font-medium" : ""}>
-                Timer: {formatDatetime(t.timerDeadline)}
-              </span>
-            )}
+            {c.matchedVendorId && <span>Partner matched</span>}
           </div>
         </div>
       ))}
@@ -313,35 +429,27 @@ function ThreadsView() {
 // ── Main Dashboard ──
 
 export default function Dashboard() {
-  const [tab, setTab] = useState<Tab>("inbound");
-
-  const tabs: { key: Tab; label: string }[] = [
-    { key: "inbound", label: "Inbound Feed" },
-    { key: "threads", label: "Threads" },
-    { key: "sites", label: "Sites" },
-  ];
+  const [showInbound, setShowInbound] = useState(false);
 
   return (
     <main className="max-w-7xl mx-auto px-4 py-8">
-      <div className="flex gap-1 mb-6 border-b border-gray-200">
-        {tabs.map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
-            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-              tab === t.key
-                ? "border-blue-600 text-blue-600"
-                : "border-transparent text-gray-500 hover:text-gray-700"
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
+      <div className="mb-6">
+        <h1 className="text-xl font-bold">Sites</h1>
+        <p className="text-sm text-gray-500 mt-1">Click a site to see linked messages and activity</p>
       </div>
 
-      {tab === "sites" && <SitesView />}
-      {tab === "inbound" && <InboundFeed />}
-      {tab === "threads" && <ThreadsView />}
+      <SitesView />
+
+      <div className="mt-10">
+        <button
+          onClick={() => setShowInbound(!showInbound)}
+          className="flex items-center gap-2 text-sm font-medium text-gray-600 hover:text-gray-800 mb-4"
+        >
+          <span>{showInbound ? "\u25B2" : "\u25BC"}</span>
+          Unmatched Inbound
+        </button>
+        {showInbound && <InboundFeed />}
+      </div>
     </main>
   );
 }

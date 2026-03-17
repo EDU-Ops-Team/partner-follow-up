@@ -1,4 +1,4 @@
-import { query, internalQuery, internalMutation } from "./_generated/server";
+import { query, mutation, internalQuery, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 
 // ── Public Queries (for dashboard) ──
@@ -31,6 +31,38 @@ export const list = query({
   },
 });
 
+export const listBySiteId = query({
+  args: { siteId: v.id("sites") },
+  handler: async (ctx, { siteId }) => {
+    const all = await ctx.db
+      .query("emailClassifications")
+      .order("desc")
+      .collect();
+    return all.filter((c) => c.matchedSiteIds.includes(siteId));
+  },
+});
+
+export const listUnmatched = query({
+  args: { limit: v.optional(v.number()) },
+  handler: async (ctx, { limit }) => {
+    const all = await ctx.db
+      .query("emailClassifications")
+      .order("desc")
+      .collect();
+    const unmatched = all.filter(
+      (c) => c.matchedSiteIds.length === 0 && c.status !== "archived"
+    );
+    return limit ? unmatched.slice(0, limit) : unmatched;
+  },
+});
+
+export const archive = mutation({
+  args: { id: v.id("emailClassifications") },
+  handler: async (ctx, { id }) => {
+    await ctx.db.patch(id, { status: "archived" });
+  },
+});
+
 export const getById = query({
   args: { id: v.id("emailClassifications") },
   handler: async (ctx, { id }) => {
@@ -39,6 +71,13 @@ export const getById = query({
 });
 
 // ── Internal Queries (for actions) ──
+
+export const getByIdInternal = internalQuery({
+  args: { classificationId: v.id("emailClassifications") },
+  handler: async (ctx, { classificationId }) => {
+    return ctx.db.get(classificationId);
+  },
+});
 
 export const getByGmailMessageId = internalQuery({
   args: { gmailMessageId: v.string() },

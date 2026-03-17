@@ -3,7 +3,7 @@
 import { internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { GOOGLE_DRIVE_PARENT_FOLDER_ID } from "./lib/constants";
-import { listThreadMessages, parseGmailMessage, getAttachment, sendEmail, type ThreadingOptions } from "./services/gmail";
+import { listThreadMessages, parseGmailMessage, getAttachment, sendEmail, type ThreadingOptions } from "./services/agentGmail";
 import { postToChat } from "./services/googleChat";
 import { findOrCreateFolder, uploadFile } from "./services/googleDrive";
 import { parseReplyIntent } from "./services/replyParser";
@@ -39,17 +39,44 @@ export const run = internalAction({
       }
 
       const chatWebhook = getEnv("GOOGLE_CHAT_WEBHOOK_URL");
-      const sendAsEmail = (process.env.GMAIL_SEND_AS ?? "auth.permitting@trilogy.com").toLowerCase();
+      const sendAsEmail = (process.env.AGENT_GMAIL_SEND_AS ?? "edu.ops@trilogy.com").toLowerCase();
 
       for (const site of activeSites) {
         try {
-          const threadMessages = await listThreadMessages(site.triggerThreadId!);
+          // Collect all thread IDs from both legacy and new format
+          const threadIds = new Set<string>();
+          if (site.triggerThreadId) threadIds.add(site.triggerThreadId);
+          if (site.triggerEmails) {
+            for (const t of site.triggerEmails) {
+              if (t.threadId) threadIds.add(t.threadId);
+            }
+          }
+          if (threadIds.size === 0) continue;
+
+          // Process all threads for this site
+          const allThreadMessages = [];
+          for (const tid of threadIds) {
+            const msgs = await listThreadMessages(tid);
+            allThreadMessages.push(...msgs);
+          }
+          // Dedup messages by ID (threads may overlap)
+          const seenMsgIds = new Set<string>();
+          const threadMessages = allThreadMessages.filter((m) => {
+            if (!m.id || seenMsgIds.has(m.id)) return false;
+            seenMsgIds.add(m.id);
+            return true;
+          });
 
           for (const msg of threadMessages) {
             if (!msg.id) continue;
 
-            // Skip the original trigger email
-            if (msg.id === site.triggerEmailId) continue;
+            // Skip original trigger emails
+            const triggerEmailIds = new Set<string>();
+            if (site.triggerEmailId) triggerEmailIds.add(site.triggerEmailId);
+            if (site.triggerEmails) {
+              for (const t of site.triggerEmails) triggerEmailIds.add(t.emailId);
+            }
+            if (triggerEmailIds.has(msg.id)) continue;
 
             // Dedup check
             const already = await ctx.runQuery(internal.processedMessages.getByMessageId, {
@@ -198,9 +225,11 @@ export const run = internalAction({
               });
             }
 
-            // Threading options for the response
+            // Threading options — use the thread this message came from
+            const replyThreadId = parsed.threadId ?? site.triggerThreadId
+              ?? site.triggerEmails?.[site.triggerEmails.length - 1]?.threadId;
             const threadOpts: ThreadingOptions = {
-              threadId: site.triggerThreadId,
+              threadId: replyThreadId,
               inReplyTo: parsed.gmailMessageId,
               references: parsed.references
                 ? `${parsed.references} ${parsed.gmailMessageId}`

@@ -49,6 +49,40 @@ export const CLASSIFICATION_CONFIDENCE_THRESHOLD = 0.9;
 /** Internal email domains (classified as internal, not processed for replies) */
 export const INTERNAL_DOMAINS = ["trilogy.com", "2hourlearning.com", "alpha.school"];
 
+/** Automated sender domains/addresses to skip entirely (never classify) */
+export const SKIP_SENDERS = [
+  // Google Workspace notifications
+  "noreply@google.com",
+  "calendar-notification@google.com",
+  "comments-noreply@docs.google.com",
+  "drive-shares-dm-noreply@google.com",
+  "drive-shares-noreply@google.com",
+  "no-reply@accounts.google.com",
+  // Other automated systems
+  "noreply@",
+  "no-reply@",
+  "mailer-daemon@",
+  "postmaster@",
+  "notifications@",
+  "notify@",
+  "donotreply@",
+  "do-not-reply@",
+];
+
+/** Subject patterns that indicate automated/system emails */
+export const SKIP_SUBJECT_PATTERNS = [
+  /you've been (invited|granted) .* (document|file|folder|spreadsheet|form)/i,
+  /shared .* with you/i,
+  /new comment on/i,
+  /suggested edit/i,
+  /action items from/i,
+  /invitation:.*@/i,
+  /accepted:.*@/i,
+  /declined:.*@/i,
+  /updated invitation/i,
+  /canceled event/i,
+];
+
 /** Gate mechanism thresholds */
 export const GATE_PASS_THRESHOLD = 0.98;
 export const GATE_GRADUATION_PASS_RATE = 0.95;

@@ -7,7 +7,7 @@ import { useSession, signOut } from "next-auth/react";
 const NAV_ITEMS = [
   { href: "/", label: "Dashboard" },
   { href: "/review", label: "Review Queue" },
-  { href: "/vendors", label: "Vendors" },
+  { href: "/partners", label: "Partners" },
 ];
 
 export function Nav() {
