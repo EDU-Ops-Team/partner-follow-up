@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { api } from "../../../../../../../convex/_generated/api";
-import type { Id } from "../../../../../../../convex/_generated/dataModel";
+import { api } from "convex/_generated/api";
+import type { Id } from "convex/_generated/dataModel";
 import { getServerApiKey, getServerConvex, requireReviewer } from "@/lib/serverConvex";
 
 export async function POST(
@@ -21,3 +21,5 @@ export async function POST(
 
   return NextResponse.json({ ok: true });
 }
+
+

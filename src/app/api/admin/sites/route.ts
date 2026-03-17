@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ConvexHttpClient } from "convex/browser";
-import { api } from "../../../../../convex/_generated/api";
+import { api } from "convex/_generated/api";
 import { normalizeAddress } from "../../../../../convex/lib/addressNormalizer";
 import { addBusinessDays } from "../../../../../convex/lib/businessDays";
 import { SCHEDULING_CHECK_INTERVAL_DAYS } from "../../../../../convex/lib/constants";

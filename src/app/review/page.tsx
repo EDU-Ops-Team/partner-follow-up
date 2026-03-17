@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import type { Doc } from "../../../convex/_generated/dataModel";
+import type { Doc } from "convex/_generated/dataModel";
 
 type DraftEmail = Doc<"draftEmails">;
 

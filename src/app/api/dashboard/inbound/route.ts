@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { api } from "../../../../../convex/_generated/api";
+import { api } from "convex/_generated/api";
 import { getServerApiKey, getServerConvex, requireReviewer } from "@/lib/serverConvex";
 
 export async function GET(request: NextRequest) {
@@ -22,3 +22,4 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({ classifications });
 }
+

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import type { Doc, Id } from "../../../../convex/_generated/dataModel";
+import type { Doc, Id } from "convex/_generated/dataModel";
 
 type Draft = Doc<"draftEmails">;
 type Classification = Doc<"emailClassifications"> | null;
@@ -112,11 +112,12 @@ export default function ReviewDraft() {
     );
   }
 
+  const currentDraft = draft!;
   function startEdit() {
-    setEditedTo(draft.originalTo);
-    setEditedCc(draft.originalCc ?? "");
-    setEditedSubject(draft.originalSubject);
-    setEditedBody(htmlToText(draft.originalBody));
+    setEditedTo(currentDraft.originalTo);
+    setEditedCc(currentDraft.originalCc ?? "");
+    setEditedSubject(currentDraft.originalSubject);
+    setEditedBody(htmlToText(currentDraft.originalBody));
     setEditMode(true);
   }
 
@@ -142,11 +143,11 @@ export default function ReviewDraft() {
           >
             &larr; Back to queue
           </button>
-          {statusBadge(draft.status)}
-          {tierBadge(draft.tier)}
+          {statusBadge(currentDraft.status)}
+          {tierBadge(currentDraft.tier)}
         </div>
         <span className="text-xs text-gray-400">
-          Created {formatDatetime(draft.createdAt)}
+          Created {formatDatetime(currentDraft.createdAt)}
         </span>
       </div>
 
@@ -215,29 +216,29 @@ export default function ReviewDraft() {
             </div>
           ) : (
             <div className="space-y-2 text-sm">
-              <div><span className="text-gray-500">To:</span> {draft.originalTo}</div>
-              {draft.originalCc && <div><span className="text-gray-500">CC:</span> {draft.originalCc}</div>}
-              <div><span className="text-gray-500">Subject:</span> {draft.originalSubject}</div>
+              <div><span className="text-gray-500">To:</span> {currentDraft.originalTo}</div>
+              {currentDraft.originalCc && <div><span className="text-gray-500">CC:</span> {currentDraft.originalCc}</div>}
+              <div><span className="text-gray-500">Subject:</span> {currentDraft.originalSubject}</div>
               <div className="mt-3 border-t border-gray-100 pt-3 whitespace-pre-wrap">
-                {htmlToText(draft.originalBody)}
+                {htmlToText(currentDraft.originalBody)}
               </div>
             </div>
           )}
         </div>
 
-        {draft.sentBody && (
+        {currentDraft.sentBody && (
           <div className="p-4 border-t border-gray-100 bg-green-50">
             <h3 className="text-xs font-medium text-gray-500 uppercase mb-3">Sent Version</h3>
             <div className="space-y-2 text-sm">
-              <div><span className="text-gray-500">To:</span> {draft.sentTo}</div>
-              {draft.sentCc && <div><span className="text-gray-500">CC:</span> {draft.sentCc}</div>}
-              <div><span className="text-gray-500">Subject:</span> {draft.sentSubject}</div>
-              <div className="mt-3 whitespace-pre-wrap">{htmlToText(draft.sentBody)}</div>
+              <div><span className="text-gray-500">To:</span> {currentDraft.sentTo}</div>
+              {currentDraft.sentCc && <div><span className="text-gray-500">CC:</span> {currentDraft.sentCc}</div>}
+              <div><span className="text-gray-500">Subject:</span> {currentDraft.sentSubject}</div>
+              <div className="mt-3 whitespace-pre-wrap">{htmlToText(currentDraft.sentBody)}</div>
             </div>
-            {draft.reviewedAt && (
+            {currentDraft.reviewedAt && (
               <div className="mt-3 text-xs text-gray-400">
-                Reviewed {formatDatetime(draft.reviewedAt)}
-                {draft.editsMade ? " (edited)" : " (approved as-is)"}
+                Reviewed {formatDatetime(currentDraft.reviewedAt)}
+                {currentDraft.editsMade ? " (edited)" : " (approved as-is)"}
               </div>
             )}
           </div>
