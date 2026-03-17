@@ -33,6 +33,7 @@ import type * as lib_constants from "../lib/constants.js";
 import type * as lib_holidayData from "../lib/holidayData.js";
 import type * as lib_logger from "../lib/logger.js";
 import type * as lib_retry from "../lib/retry.js";
+import type * as lib_reviewDiff from "../lib/reviewDiff.js";
 import type * as lib_templates from "../lib/templates.js";
 import type * as lib_types from "../lib/types.js";
 import type * as migrateSites from "../migrateSites.js";
@@ -87,6 +88,7 @@ declare const fullApi: ApiFromModules<{
   "lib/holidayData": typeof lib_holidayData;
   "lib/logger": typeof lib_logger;
   "lib/retry": typeof lib_retry;
+  "lib/reviewDiff": typeof lib_reviewDiff;
   "lib/templates": typeof lib_templates;
   "lib/types": typeof lib_types;
   migrateSites: typeof migrateSites;
