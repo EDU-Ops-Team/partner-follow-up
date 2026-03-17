@@ -13,6 +13,44 @@ function requireApiKey(apiKey: string): void {
   }
 }
 
+async function getReviewerByIdentity(
+  ctx: any,
+  {
+    reviewerGoogleId,
+    reviewerEmail,
+  }: {
+    reviewerGoogleId?: string;
+    reviewerEmail?: string;
+  }
+) {
+  if (reviewerGoogleId) {
+    const reviewerByGoogleId = await ctx.db
+      .query("reviewers")
+      .withIndex("by_googleId", (q: any) => q.eq("googleId", reviewerGoogleId))
+      .first();
+    if (reviewerByGoogleId) {
+      return reviewerByGoogleId;
+    }
+
+    const reviewerByFallbackEmail = await ctx.db
+      .query("reviewers")
+      .withIndex("by_email", (q: any) => q.eq("email", reviewerGoogleId))
+      .first();
+    if (reviewerByFallbackEmail) {
+      return reviewerByFallbackEmail;
+    }
+  }
+
+  if (reviewerEmail) {
+    return ctx.db
+      .query("reviewers")
+      .withIndex("by_email", (q: any) => q.eq("email", reviewerEmail))
+      .first();
+  }
+
+  return null;
+}
+
 // ── Public Queries (for dashboard) ──
 
 export const list = query({
@@ -150,19 +188,17 @@ export const approve = mutation({
   args: {
     id: v.id("draftEmails"),
     apiKey: v.string(),
-    reviewerGoogleId: v.string(),
+    reviewerGoogleId: v.optional(v.string()),
+    reviewerEmail: v.optional(v.string()),
   },
-  handler: async (ctx, { id, apiKey, reviewerGoogleId }) => {
+  handler: async (ctx, { id, apiKey, reviewerGoogleId, reviewerEmail }) => {
     requireApiKey(apiKey);
     const draft = await ctx.db.get(id);
     if (!draft || draft.status !== "pending") {
       throw new Error("Draft not found or not pending");
     }
 
-    const reviewer = await ctx.db
-      .query("reviewers")
-      .withIndex("by_googleId", (q) => q.eq("googleId", reviewerGoogleId))
-      .first();
+    const reviewer = await getReviewerByIdentity(ctx, { reviewerGoogleId, reviewerEmail });
     if (!reviewer) throw new Error("Reviewer not found");
 
     await ctx.db.patch(id, {
@@ -186,23 +222,21 @@ export const editAndSend = mutation({
   args: {
     id: v.id("draftEmails"),
     apiKey: v.string(),
-    reviewerGoogleId: v.string(),
+    reviewerGoogleId: v.optional(v.string()),
+    reviewerEmail: v.optional(v.string()),
     to: v.string(),
     cc: v.optional(v.string()),
     subject: v.string(),
     body: v.string(),
   },
-  handler: async (ctx, { id, apiKey, reviewerGoogleId, to, cc, subject, body }) => {
+  handler: async (ctx, { id, apiKey, reviewerGoogleId, reviewerEmail, to, cc, subject, body }) => {
     requireApiKey(apiKey);
     const draft = await ctx.db.get(id);
     if (!draft || draft.status !== "pending") {
       throw new Error("Draft not found or not pending");
     }
 
-    const reviewer = await ctx.db
-      .query("reviewers")
-      .withIndex("by_googleId", (q) => q.eq("googleId", reviewerGoogleId))
-      .first();
+    const reviewer = await getReviewerByIdentity(ctx, { reviewerGoogleId, reviewerEmail });
     if (!reviewer) throw new Error("Reviewer not found");
 
     const diff = analyzeReviewDiff({
@@ -237,19 +271,17 @@ export const reject = mutation({
   args: {
     id: v.id("draftEmails"),
     apiKey: v.string(),
-    reviewerGoogleId: v.string(),
+    reviewerGoogleId: v.optional(v.string()),
+    reviewerEmail: v.optional(v.string()),
   },
-  handler: async (ctx, { id, apiKey, reviewerGoogleId }) => {
+  handler: async (ctx, { id, apiKey, reviewerGoogleId, reviewerEmail }) => {
     requireApiKey(apiKey);
     const draft = await ctx.db.get(id);
     if (!draft || draft.status !== "pending") {
       throw new Error("Draft not found or not pending");
     }
 
-    const reviewer = await ctx.db
-      .query("reviewers")
-      .withIndex("by_googleId", (q) => q.eq("googleId", reviewerGoogleId))
-      .first();
+    const reviewer = await getReviewerByIdentity(ctx, { reviewerGoogleId, reviewerEmail });
     if (!reviewer) throw new Error("Reviewer not found");
 
     await ctx.db.patch(id, {

@@ -22,9 +22,15 @@ export function getServerApiKey(): string {
 
 export async function requireReviewer() {
   const session = await auth();
-  const googleId = (session?.user as Record<string, unknown> | undefined)?.googleId;
-  if (!googleId || typeof googleId !== "string") {
+  const user = session?.user as Record<string, unknown> | undefined;
+  const email = typeof user?.email === "string" ? user.email : null;
+  if (!email) {
     return null;
   }
-  return { googleId };
+  return {
+    googleId: typeof user?.googleId === "string" ? user.googleId : email,
+    email,
+    name: typeof user?.name === "string" ? user.name : email,
+    avatarUrl: typeof user?.image === "string" ? user.image : undefined,
+  };
 }

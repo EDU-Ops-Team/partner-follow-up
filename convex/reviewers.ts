@@ -11,6 +11,58 @@ function requireApiKey(apiKey: string): void {
   }
 }
 
+async function upsertReviewer(
+  ctx: any,
+  {
+    googleId,
+    email,
+    name,
+    avatarUrl,
+  }: {
+    googleId?: string;
+    email: string;
+    name: string;
+    avatarUrl?: string;
+  }
+) {
+  let existing = null;
+
+  if (googleId) {
+    existing = await ctx.db
+      .query("reviewers")
+      .withIndex("by_googleId", (q: any) => q.eq("googleId", googleId))
+      .first();
+  }
+
+  if (!existing) {
+    existing = await ctx.db
+      .query("reviewers")
+      .withIndex("by_email", (q: any) => q.eq("email", email))
+      .first();
+  }
+
+  if (existing) {
+    await ctx.db.patch(existing._id, {
+      googleId: googleId ?? existing.googleId,
+      email,
+      name,
+      avatarUrl,
+      lastLoginAt: Date.now(),
+    });
+    return existing._id;
+  }
+
+  return ctx.db.insert("reviewers", {
+    googleId: googleId ?? email,
+    email,
+    name,
+    avatarUrl,
+    role: "reviewer",
+    lastLoginAt: Date.now(),
+    createdAt: Date.now(),
+  });
+}
+
 export const list = query({
   args: { apiKey: v.string() },
   handler: async (ctx, { apiKey }) => {
@@ -57,30 +109,7 @@ export const syncFromOAuth = mutation({
   },
   handler: async (ctx, { apiKey, googleId, email, name, avatarUrl }) => {
     requireApiKey(apiKey);
-    const existing = await ctx.db
-      .query("reviewers")
-      .withIndex("by_googleId", (q) => q.eq("googleId", googleId))
-      .first();
-
-    if (existing) {
-      await ctx.db.patch(existing._id, {
-        email,
-        name,
-        avatarUrl,
-        lastLoginAt: Date.now(),
-      });
-      return existing._id;
-    }
-
-    return ctx.db.insert("reviewers", {
-      googleId,
-      email,
-      name,
-      avatarUrl,
-      role: "reviewer",
-      lastLoginAt: Date.now(),
-      createdAt: Date.now(),
-    });
+    return upsertReviewer(ctx, { googleId, email, name, avatarUrl });
   },
 });
 
@@ -92,29 +121,20 @@ export const upsertFromOAuth = internalMutation({
     avatarUrl: v.optional(v.string()),
   },
   handler: async (ctx, { googleId, email, name, avatarUrl }) => {
-    const existing = await ctx.db
-      .query("reviewers")
-      .withIndex("by_googleId", (q) => q.eq("googleId", googleId))
-      .first();
+    return upsertReviewer(ctx, { googleId, email, name, avatarUrl });
+  },
+});
 
-    if (existing) {
-      await ctx.db.patch(existing._id, {
-        email,
-        name,
-        avatarUrl,
-        lastLoginAt: Date.now(),
-      });
-      return existing._id;
-    }
-
-    return ctx.db.insert("reviewers", {
-      googleId,
-      email,
-      name,
-      avatarUrl,
-      role: "reviewer",
-      lastLoginAt: Date.now(),
-      createdAt: Date.now(),
-    });
+export const ensureFromSession = mutation({
+  args: {
+    apiKey: v.string(),
+    googleId: v.optional(v.string()),
+    email: v.string(),
+    name: v.string(),
+    avatarUrl: v.optional(v.string()),
+  },
+  handler: async (ctx, { apiKey, googleId, email, name, avatarUrl }) => {
+    requireApiKey(apiKey);
+    return upsertReviewer(ctx, { googleId, email, name, avatarUrl });
   },
 });
