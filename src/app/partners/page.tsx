@@ -62,6 +62,30 @@ const EMPTY_FORM: PartnerFormData = {
   notes: "",
 };
 
+function buildPrimaryContact(email: string, name: string) {
+  if (!email.trim()) {
+    return null;
+  }
+
+  const contact: { email: string; isPrimary: true; name?: string } = {
+    email: email.trim(),
+    isPrimary: true,
+  };
+  if (name.trim()) {
+    contact.name = name.trim();
+  }
+  return contact;
+}
+
+function parseOptionalSlaDays(value: string) {
+  if (!value.trim()) {
+    return undefined;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
 export default function PartnersPage() {
   const partners = useQuery(api.vendors.list, {});
   const createPartner = useMutation(api.vendors.create);
@@ -71,6 +95,7 @@ export default function PartnersPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editData, setEditData] = useState<PartnerFormData>(EMPTY_FORM);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   if (partners === undefined) {
     return (
@@ -83,24 +108,23 @@ export default function PartnersPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setIsSubmitting(true);
+    setError(null);
     try {
+      const primaryContact = buildPrimaryContact(formData.contactEmail, formData.contactName);
       await createPartner({
         name: formData.name,
         role: formData.role,
         category: formData.category,
-        contacts: formData.contactEmail ? [{
-          email: formData.contactEmail,
-          name: formData.contactName || undefined,
-          isPrimary: true,
-        }] : [],
-        geographicScope: formData.geographicScope || undefined,
-        defaultSLADays: formData.defaultSLADays ? parseInt(formData.defaultSLADays) : undefined,
-        notes: formData.notes || undefined,
+        contacts: primaryContact ? [primaryContact] : [],
+        geographicScope: formData.geographicScope.trim() || undefined,
+        defaultSLADays: parseOptionalSlaDays(formData.defaultSLADays),
+        notes: formData.notes.trim() || undefined,
       });
       setFormData(EMPTY_FORM);
       setShowForm(false);
     } catch (error) {
       console.error("Failed to create partner:", error);
+      setError(error instanceof Error ? error.message : "Failed to create partner");
     }
     setIsSubmitting(false);
   }
@@ -123,12 +147,11 @@ export default function PartnersPage() {
   async function handleUpdate(e: React.FormEvent, partnerId: string) {
     e.preventDefault();
     setIsSubmitting(true);
+    setError(null);
     try {
       const partner = partners?.find((p) => p._id === partnerId);
       const otherContacts = partner?.contacts.filter((c) => !c.isPrimary) ?? [];
-      const primaryContact = editData.contactEmail
-        ? { email: editData.contactEmail, name: editData.contactName || undefined, isPrimary: true as const }
-        : null;
+      const primaryContact = buildPrimaryContact(editData.contactEmail, editData.contactName);
       const contacts = primaryContact ? [primaryContact, ...otherContacts] : otherContacts;
 
       await updatePartner({
@@ -137,23 +160,30 @@ export default function PartnersPage() {
         role: editData.role,
         category: editData.category,
         contacts,
-        geographicScope: editData.geographicScope || undefined,
-        defaultSLADays: editData.defaultSLADays ? parseInt(editData.defaultSLADays) : undefined,
-        notes: editData.notes || undefined,
+        geographicScope: editData.geographicScope.trim() || undefined,
+        defaultSLADays: parseOptionalSlaDays(editData.defaultSLADays),
+        notes: editData.notes.trim() || undefined,
       });
       setEditingId(null);
     } catch (error) {
       console.error("Failed to update partner:", error);
+      setError(error instanceof Error ? error.message : "Failed to update partner");
     }
     setIsSubmitting(false);
   }
 
   async function toggleStatus(partner: NonNullable<typeof partners>[number]) {
     const newStatus = partner.status === "active" ? "inactive" : "active";
-    await updatePartner({
-      id: partner._id as Id<"vendors">,
-      status: newStatus,
-    });
+    setError(null);
+    try {
+      await updatePartner({
+        id: partner._id as Id<"vendors">,
+        status: newStatus,
+      });
+    } catch (error) {
+      console.error("Failed to update partner status:", error);
+      setError(error instanceof Error ? error.message : "Failed to update partner status");
+    }
   }
 
   return (
@@ -172,6 +202,12 @@ export default function PartnersPage() {
           {showForm ? "Cancel" : "Add Partner"}
         </button>
       </div>
+
+      {error && (
+        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
 
       {showForm && (
         <form onSubmit={handleSubmit} className="bg-white border border-gray-200 rounded-lg p-5 mb-6 space-y-4">
