@@ -256,7 +256,7 @@ export const run = internalAction({
                   reportLink: site.reportLink ?? undefined,
                 },
                 airtableData: airtableMatch,
-                vendorReply: { from: senderEmail, body: parsed.body },
+                partnerReply: { from: senderEmail, body: parsed.body },
               });
 
               llmResponse = llmResult.response;

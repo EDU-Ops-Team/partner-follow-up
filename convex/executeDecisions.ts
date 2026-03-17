@@ -2,17 +2,18 @@
 
 import { internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
+import { plainTextToHtml } from "./lib/reviewDiff";
+import { logger } from "./lib/logger";
+import { generateDraftReply } from "./services/claudeAI";
 import { executeTree, type DecisionContext } from "./services/decisionEngine";
 import { populateEmail, type TemplateContext } from "./services/templateEngine";
-import { logger } from "./lib/logger";
-import type { Id } from "./_generated/dataModel";
 
 export const run = internalAction({
   handler: async (ctx): Promise<{ processed: number; errors: string[] }> => {
     const errors: string[] = [];
     let processed = 0;
 
-    // Get all classifications waiting for a decision
     const pending = await ctx.runQuery(internal.emailClassifications.listPending);
 
     if (pending.length === 0) {
@@ -23,7 +24,6 @@ export const run = internalAction({
 
     for (const classification of pending) {
       try {
-        // Fetch site context if we have a matched site
         let siteContext: DecisionContext["site"] = undefined;
         let siteDoc = null;
         if (classification.matchedSiteIds.length > 0) {
@@ -42,7 +42,6 @@ export const run = internalAction({
           }
         }
 
-        // Fetch thread context
         let threadContext: DecisionContext["thread"] = undefined;
         const thread = await ctx.runQuery(internal.emailThreads.getByGmailThreadId, {
           gmailThreadId: classification.threadId,
@@ -58,7 +57,20 @@ export const run = internalAction({
           };
         }
 
-        // Build decision context
+        let threadHistory: { from: string; date: string; body: string }[] = [];
+        if (classification.threadId) {
+          const threadClassifications = await ctx.runQuery(internal.emailClassifications.listByThread, {
+            threadId: classification.threadId,
+          });
+          threadHistory = threadClassifications
+            .sort((a, b) => a.receivedAt - b.receivedAt)
+            .map((message) => ({
+              from: message.from,
+              date: new Date(message.receivedAt).toISOString(),
+              body: message.bodyPreview,
+            }));
+        }
+
         const context: DecisionContext = {
           classification: {
             classificationType: classification.classificationType,
@@ -71,10 +83,8 @@ export const run = internalAction({
           thread: threadContext,
         };
 
-        // Execute the triage decision tree
         const decision = executeTree("email-triage", context);
 
-        // Log the decision
         const logId = await ctx.runMutation(internal.decisionLogs.create, {
           classificationId: classification._id,
           treeId: decision.treeId,
@@ -84,10 +94,17 @@ export const run = internalAction({
           finalTier: decision.tier ?? undefined,
         });
 
-        // Execute the action
         if (decision.action === "draft_reply" || decision.action === "send_template") {
+          let matchedPartner:
+            | {
+                name: string;
+                category: string;
+                contactName?: string;
+                contactEmail?: string;
+              }
+            | undefined;
+
           if (decision.templateId) {
-            // Build template context from available data
             const templateContext: TemplateContext = {
               site: siteDoc ? {
                 address: siteDoc.fullAddress ?? siteDoc.siteAddress,
@@ -114,15 +131,20 @@ export const run = internalAction({
               },
             };
 
-            // Fetch vendor info if available
             if (classification.matchedVendorId) {
-              const vendor = await ctx.runQuery(internal.vendors.getByIdInternal, {
+              const partner = await ctx.runQuery(internal.vendors.getByIdInternal, {
                 id: classification.matchedVendorId,
               });
-              if (vendor) {
-                const primaryContact = vendor.contacts.find((c) => c.isPrimary) ?? vendor.contacts[0];
+              if (partner) {
+                const primaryContact = partner.contacts.find((contact) => contact.isPrimary) ?? partner.contacts[0];
+                matchedPartner = {
+                  name: partner.name,
+                  category: partner.category,
+                  contactName: primaryContact?.name,
+                  contactEmail: primaryContact?.email,
+                };
                 templateContext.vendor = {
-                  name: vendor.name,
+                  name: partner.name,
                   contactName: primaryContact?.name,
                   contactEmail: primaryContact?.email,
                 };
@@ -144,21 +166,67 @@ export const run = internalAction({
               });
             }
           } else {
-            // No template — create a draft placeholder for LLM generation or human drafting
+            if (classification.matchedVendorId) {
+              const partner = await ctx.runQuery(internal.vendors.getByIdInternal, {
+                id: classification.matchedVendorId,
+              });
+              if (partner) {
+                const primaryContact = partner.contacts.find((contact) => contact.isPrimary) ?? partner.contacts[0];
+                matchedPartner = {
+                  name: partner.name,
+                  category: partner.category,
+                  contactName: primaryContact?.name,
+                  contactEmail: primaryContact?.email,
+                };
+              }
+            }
+
+            let originalBody = `[Draft needed - ${decision.reason}]`;
+            try {
+              const llmDraft = await generateDraftReply({
+                classificationType: classification.classificationType,
+                subject: classification.subject,
+                bodyPreview: classification.bodyPreview,
+                from: classification.from,
+                to: classification.to,
+                cc: classification.cc,
+                siteContext: siteDoc ? {
+                  siteAddress: siteDoc.siteAddress,
+                  fullAddress: siteDoc.fullAddress ?? undefined,
+                  phase: siteDoc.phase,
+                  lidarScheduled: siteDoc.lidarScheduled,
+                  lidarScheduledDatetime: siteDoc.lidarScheduledDatetime ?? undefined,
+                  lidarJobStatus: siteDoc.lidarJobStatus ?? undefined,
+                  inspectionScheduled: siteDoc.inspectionScheduled,
+                  inspectionDate: siteDoc.inspectionDate ?? undefined,
+                  inspectionTime: siteDoc.inspectionTime ?? undefined,
+                  reportReceived: siteDoc.reportReceived,
+                  reportLink: siteDoc.reportLink ?? undefined,
+                } : undefined,
+                threadHistory,
+                partner: matchedPartner,
+              });
+              originalBody = plainTextToHtml(llmDraft.response);
+            } catch (error) {
+              logger.error("Failed to generate partner draft reply", {
+                classificationId: classification._id,
+                error: error instanceof Error ? error.message : String(error),
+              });
+            }
+
             await ctx.runMutation(internal.draftEmails.create, {
               classificationId: classification._id,
               threadId: classification.threadId,
               originalTo: classification.from,
               originalCc: undefined,
               originalSubject: `Re: ${classification.subject}`,
-              originalBody: `[Draft needed — ${decision.reason}]`,
+              originalBody,
               siteId: classification.matchedSiteIds[0] ?? undefined,
               vendorId: classification.matchedVendorId ?? undefined,
               tier: decision.tier ?? 2,
             });
           }
 
-          // Update classification status
           await ctx.runMutation(internal.emailClassifications.updateStatus, {
             id: classification._id,
             status: "action_pending",
@@ -180,7 +248,6 @@ export const run = internalAction({
             decisionLogId: logId,
           });
         } else {
-          // no_action
           await ctx.runMutation(internal.emailClassifications.updateStatus, {
             id: classification._id,
             status: "action_taken",
@@ -189,7 +256,6 @@ export const run = internalAction({
           });
         }
 
-        // Audit log
         await ctx.runMutation(internal.auditLogs.create, {
           siteId: classification.matchedSiteIds[0] ?? undefined,
           action: "decision_executed",

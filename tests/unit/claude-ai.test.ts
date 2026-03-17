@@ -1,5 +1,9 @@
-import { describe, it, expect } from "vitest";
-import { buildPrompt, parseResponse } from "../../convex/services/claudeAI";
+import { describe, expect, it } from "vitest";
+import {
+  buildDraftReplyPrompt,
+  buildPrompt,
+  parseResponse,
+} from "../../convex/services/claudeAI";
 
 const mockSiteContext = {
   siteAddress: "620 5th Avenue",
@@ -24,14 +28,14 @@ const mockThreadHistory = [
   { from: "auth.permitting@trilogy.com", date: "2026-03-08T14:00:00Z", body: "This is a reminder that scheduling is still incomplete." },
 ];
 
-const mockVendorReply = {
+const mockPartnerReply = {
   from: "mshkreli@rtl-re.com",
   body: "When is the LiDAR scan scheduled? We need to coordinate access.",
 };
 
 describe("buildPrompt", () => {
   it("includes site status section", () => {
-    const prompt = buildPrompt(mockSiteContext, mockAirtableData, mockThreadHistory, mockVendorReply);
+    const prompt = buildPrompt(mockSiteContext, mockAirtableData, mockThreadHistory, mockPartnerReply);
     expect(prompt).toContain("## Current Site Status");
     expect(prompt).toContain("620 5th Ave S, Kirkland, WA");
     expect(prompt).toContain("Phase: scheduling");
@@ -40,28 +44,28 @@ describe("buildPrompt", () => {
   });
 
   it("includes Airtable data section", () => {
-    const prompt = buildPrompt(mockSiteContext, mockAirtableData, mockThreadHistory, mockVendorReply);
+    const prompt = buildPrompt(mockSiteContext, mockAirtableData, mockThreadHistory, mockPartnerReply);
     expect(prompt).toContain("## Latest Airtable Data");
     expect(prompt).toContain("Expired Contract");
     expect(prompt).toContain("matterport.com");
   });
 
   it("handles null Airtable data", () => {
-    const prompt = buildPrompt(mockSiteContext, null, mockThreadHistory, mockVendorReply);
+    const prompt = buildPrompt(mockSiteContext, null, mockThreadHistory, mockPartnerReply);
     expect(prompt).toContain("No matching Airtable record found");
   });
 
   it("includes thread history", () => {
-    const prompt = buildPrompt(mockSiteContext, mockAirtableData, mockThreadHistory, mockVendorReply);
+    const prompt = buildPrompt(mockSiteContext, mockAirtableData, mockThreadHistory, mockPartnerReply);
     expect(prompt).toContain("## Email Thread History");
     expect(prompt).toContain("[1] From: Zack Lamb");
     expect(prompt).toContain("[2] From: auth.permitting");
     expect(prompt).toContain("scheduling is still incomplete");
   });
 
-  it("includes vendor reply", () => {
-    const prompt = buildPrompt(mockSiteContext, mockAirtableData, mockThreadHistory, mockVendorReply);
-    expect(prompt).toContain("## Vendor Reply");
+  it("includes partner reply", () => {
+    const prompt = buildPrompt(mockSiteContext, mockAirtableData, mockThreadHistory, mockPartnerReply);
+    expect(prompt).toContain("## Partner Reply");
     expect(prompt).toContain("mshkreli@rtl-re.com");
     expect(prompt).toContain("coordinate access");
   });
@@ -72,8 +76,7 @@ describe("buildPrompt", () => {
       date: `2026-03-${String(i + 1).padStart(2, "0")}T10:00:00Z`,
       body: `Message ${i + 1}`,
     }));
-    const prompt = buildPrompt(mockSiteContext, null, longHistory, mockVendorReply);
-    // Should only include messages 6-15 (last 10)
+    const prompt = buildPrompt(mockSiteContext, null, longHistory, mockPartnerReply);
     expect(prompt).not.toContain("Message 1\n");
     expect(prompt).not.toContain("[6] From: user0");
     expect(prompt).toContain("Message 15");
@@ -82,16 +85,43 @@ describe("buildPrompt", () => {
   it("truncates long message bodies", () => {
     const longBody = "A".repeat(3000);
     const history = [{ from: "test@example.com", date: "2026-03-01T10:00:00Z", body: longBody }];
-    const prompt = buildPrompt(mockSiteContext, null, history, mockVendorReply);
-    // Body should be truncated to 2000 chars + "..."
+    const prompt = buildPrompt(mockSiteContext, null, history, mockPartnerReply);
     expect(prompt).not.toContain("A".repeat(3000));
     expect(prompt).toContain("...");
   });
 
   it("uses siteAddress when fullAddress is missing", () => {
     const noFullAddress = { ...mockSiteContext, fullAddress: undefined };
-    const prompt = buildPrompt(noFullAddress, null, [], mockVendorReply);
+    const prompt = buildPrompt(noFullAddress, null, [], mockPartnerReply);
     expect(prompt).toContain("Address: 620 5th Avenue");
+  });
+});
+
+describe("buildDraftReplyPrompt", () => {
+  it("includes partner and site context for reply drafting", () => {
+    const prompt = buildDraftReplyPrompt({
+      classificationType: "vendor_question",
+      subject: "Access for scan",
+      bodyPreview: "Can we get access details for Tuesday?",
+      from: "mshkreli@rtl-re.com",
+      to: ["edu.ops@trilogy.com"],
+      cc: ["zack.lamb@2hourlearning.com"],
+      siteContext: mockSiteContext,
+      threadHistory: mockThreadHistory,
+      partner: {
+        name: "RTL",
+        category: "inspection",
+        contactName: "Mira Shkreli",
+        contactEmail: "mshkreli@rtl-re.com",
+      },
+    });
+
+    expect(prompt).toContain("Draft a reply from EDU Ops Team for human review.");
+    expect(prompt).toContain("## Current Inbound Email");
+    expect(prompt).toContain("## Site Context");
+    expect(prompt).toContain("## Partner Context");
+    expect(prompt).toContain("Partner Name: RTL");
+    expect(prompt).toContain("Access for scan");
   });
 });
 

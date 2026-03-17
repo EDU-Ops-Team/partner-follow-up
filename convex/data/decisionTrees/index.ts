@@ -138,7 +138,7 @@ export const EMAIL_TRIAGE_TREE: DecisionTree = {
       reason: "Inspection report received — distribute internally",
     },
 
-    // Vendor scheduling update
+    // Partner scheduling update
     check_vendor_scheduling: {
       type: "condition",
       nodeId: "check_vendor_scheduling",
@@ -153,10 +153,10 @@ export const EMAIL_TRIAGE_TREE: DecisionTree = {
       nodeId: "action_acknowledge_scheduling",
       action: "draft_reply",
       tier: 2,
-      reason: "Vendor scheduling update — draft acknowledgment for review",
+      reason: "Partner scheduling update — draft acknowledgment for review",
     },
 
-    // Vendor completion
+    // Partner completion
     check_vendor_completion: {
       type: "condition",
       nodeId: "check_vendor_completion",
@@ -171,10 +171,10 @@ export const EMAIL_TRIAGE_TREE: DecisionTree = {
       nodeId: "action_acknowledge_completion",
       action: "draft_reply",
       tier: 2,
-      reason: "Vendor completion update — draft acknowledgment for review",
+      reason: "Partner completion update — draft acknowledgment for review",
     },
 
-    // Vendor question
+    // Partner question
     check_vendor_question: {
       type: "condition",
       nodeId: "check_vendor_question",
@@ -189,7 +189,7 @@ export const EMAIL_TRIAGE_TREE: DecisionTree = {
       nodeId: "action_draft_answer",
       action: "draft_reply",
       tier: 2,
-      reason: "Vendor question — draft answer for human review",
+      reason: "Partner question — draft answer for human review",
     },
 
     // Unknown / catch-all
@@ -223,7 +223,7 @@ export const FOLLOWUP_TREE: DecisionTree = {
   description: "Determines follow-up action when a thread timer fires",
   rootNode: "check_days_waiting",
   nodes: {
-    // If vendor has been non-responsive for 5+ business days, escalate
+    // If a partner has been non-responsive for 5+ business days, escalate
     check_days_waiting: {
       type: "condition",
       nodeId: "check_days_waiting",
@@ -239,7 +239,7 @@ export const FOLLOWUP_TREE: DecisionTree = {
       action: "send_template",
       tier: 2,
       templateId: "t03_vendor_followup_escalated",
-      reason: "Vendor non-responsive 5+ business days — escalated follow-up",
+      reason: "Partner non-responsive 5+ business days — escalated follow-up",
     },
     action_standard_followup: {
       type: "action",

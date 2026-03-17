@@ -30,7 +30,14 @@ function classificationBadge(type: string) {
     auto_reply: "bg-gray-100 text-gray-500",
     unknown: "bg-gray-100 text-gray-500",
   };
-  const label = type.replace(/_/g, " ");
+  const labels: Record<string, string> = {
+    vendor_scheduling: "partner scheduling",
+    vendor_completion: "partner completion",
+    vendor_question: "partner question",
+    vendor_invoice: "partner invoice",
+    waiting_vendor: "waiting partner",
+  };
+  const label = labels[type] ?? type.replace(/_/g, " ");
   return (
     <span className={`inline-block px-2 py-1 rounded text-xs font-medium ${colors[type] ?? "bg-gray-100 text-gray-800"}`}>
       {label}
@@ -63,7 +70,7 @@ function threadStateBadge(state: string) {
   };
   return (
     <span className={`inline-block px-2 py-1 rounded text-xs font-medium ${colors[state] ?? "bg-gray-100"}`}>
-      {state.replace(/_/g, " ")}
+      {state === "waiting_vendor" ? "waiting partner" : state.replace(/_/g, " ")}
     </span>
   );
 }

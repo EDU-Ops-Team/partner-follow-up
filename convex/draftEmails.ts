@@ -1,6 +1,7 @@
 import { query, mutation, internalQuery, internalMutation } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
+import { analyzeReviewDiff, plainTextToHtml } from "./lib/reviewDiff";
 
 function requireApiKey(apiKey: string): void {
   const expected = process.env.REVIEW_API_KEY ?? process.env.ADMIN_API_KEY;
@@ -173,6 +174,8 @@ export const approve = mutation({
       sentSubject: draft.originalSubject,
       sentBody: draft.originalBody,
       editsMade: false,
+      editDistance: 0,
+      editCategories: [],
     });
 
     await ctx.scheduler.runAfter(0, internal.sendDraftEmail.sendApproved, { id });
@@ -202,16 +205,28 @@ export const editAndSend = mutation({
       .first();
     if (!reviewer) throw new Error("Reviewer not found");
 
-    const htmlBody = body.replace(/\n/g, "<br>");
+    const diff = analyzeReviewDiff({
+      originalTo: draft.originalTo,
+      originalCc: draft.originalCc,
+      originalSubject: draft.originalSubject,
+      originalBodyHtml: draft.originalBody,
+      editedTo: to,
+      editedCc: cc,
+      editedSubject: subject,
+      editedBodyText: body,
+    });
+    const htmlBody = plainTextToHtml(body);
     await ctx.db.patch(id, {
-      status: "edited",
+      status: diff.editsMade ? "edited" : "approved",
       reviewedBy: reviewer._id,
       reviewedAt: Date.now(),
       sentTo: to,
       sentCc: cc,
       sentSubject: subject,
       sentBody: htmlBody,
-      editsMade: true,
+      editsMade: diff.editsMade,
+      editDistance: diff.editDistance,
+      editCategories: diff.editCategories,
     });
 
     await ctx.scheduler.runAfter(0, internal.sendDraftEmail.sendApproved, { id });

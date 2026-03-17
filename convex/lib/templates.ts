@@ -148,13 +148,13 @@ export function llmResponseSentChat(site: Site, recipientEmail: string, response
   ].join("\n");
 }
 
-export function llmNeedsReviewChat(site: Site, senderEmail: string, vendorBody: string): string {
+export function llmNeedsReviewChat(site: Site, senderEmail: string, partnerBody: string): string {
   return [
     `*⚠ Needs Human Review — ${site.siteAddress}*`,
     "",
-    `A vendor reply could not be confidently answered by the agent:`,
+    `A partner reply could not be confidently answered by the agent:`,
     `• From: ${senderEmail}`,
-    `• Message: ${vendorBody.length > 300 ? vendorBody.slice(0, 297) + "..." : vendorBody}`,
+    `• Message: ${partnerBody.length > 300 ? partnerBody.slice(0, 297) + "..." : partnerBody}`,
     "",
     `A holding response has been sent. Please review and follow up manually.`,
   ].join("\n");

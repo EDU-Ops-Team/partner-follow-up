@@ -132,7 +132,7 @@ export function classifyByRules(
     };
   }
 
-  // If we know the vendor category, use it to boost confidence
+  // If we know the partner category, use it to boost confidence
   const vendorBoost = knownVendorCategory ? 0.05 : 0;
 
   // Invoice detection (check before scheduling since invoices may mention schedules)
@@ -175,7 +175,7 @@ export function classifyByRules(
     };
   }
 
-  // Vendor completion
+  // Partner completion
   if (bodyContainsKeywords(combinedText, COMPLETION_KEYWORDS)) {
     return {
       classificationType: "vendor_completion",
@@ -185,7 +185,7 @@ export function classifyByRules(
     };
   }
 
-  // Vendor scheduling
+  // Partner scheduling
   if (bodyContainsKeywords(combinedText, SCHEDULING_KEYWORDS)) {
     return {
       classificationType: "vendor_scheduling",
@@ -202,9 +202,9 @@ export function classifyByRules(
 const CLASSIFICATION_SYSTEM_PROMPT = `You are an email classification system for the EDU Ops team at Alpha Schools. Your job is to classify inbound emails into exactly one category.
 
 ## Categories
-- vendor_scheduling: Vendor confirming, updating, or discussing a schedule (LiDAR scan, inspection, construction, etc.)
-- vendor_completion: Vendor reporting that work is complete or delivered
-- vendor_question: Vendor asking a question about scope, timeline, access, or process
+- vendor_scheduling: Partner confirming, updating, or discussing a schedule (LiDAR scan, inspection, construction, etc.)
+- vendor_completion: Partner reporting that work is complete or delivered
+- vendor_question: Partner asking a question about scope, timeline, access, or process
 - vendor_invoice: Invoice, billing, or payment-related
 - government_permit: Correspondence about building permits, certificates of occupancy, plan review
 - government_zoning: Correspondence about zoning, land use, conditional use permits, variances
