@@ -161,10 +161,10 @@ export const update = mutation({
       name: v.optional(v.string()),
       isPrimary: v.boolean(),
     }))),
-    triggerConditions: v.optional(v.string()),
-    geographicScope: v.optional(v.string()),
-    defaultSLADays: v.optional(v.number()),
-    notes: v.optional(v.string()),
+    triggerConditions: v.optional(v.union(v.string(), v.null())),
+    geographicScope: v.optional(v.union(v.string(), v.null())),
+    defaultSLADays: v.optional(v.union(v.number(), v.null())),
+    notes: v.optional(v.union(v.string(), v.null())),
     status: v.optional(v.union(v.literal("active"), v.literal("inactive"))),
   },
   handler: async (ctx, { id, ...fields }) => {
@@ -173,19 +173,30 @@ export const update = mutation({
       throw new Error("Vendor not found");
     }
 
+    const hasField = (key: keyof typeof fields) =>
+      Object.prototype.hasOwnProperty.call(fields, key);
+
     const replacement = {
       name: normalizeOptionalString(fields.name) ?? normalizeOptionalString(existing.name) ?? "Unknown partner",
       role: normalizeOptionalString(fields.role) ?? normalizeOptionalString(existing.role) ?? "Unknown role",
       category: normalizeCategory(fields.category ?? existing.category),
       contacts: normalizeContacts(fields.contacts ?? existing.contacts),
-      triggerConditions: normalizeOptionalString(fields.triggerConditions ?? existing.triggerConditions),
-      geographicScope: normalizeOptionalString(fields.geographicScope ?? existing.geographicScope),
-      defaultSLADays: normalizeOptionalNumber(fields.defaultSLADays ?? existing.defaultSLADays),
+      triggerConditions: hasField("triggerConditions")
+        ? normalizeOptionalString(fields.triggerConditions)
+        : normalizeOptionalString(existing.triggerConditions),
+      geographicScope: hasField("geographicScope")
+        ? normalizeOptionalString(fields.geographicScope)
+        : normalizeOptionalString(existing.geographicScope),
+      defaultSLADays: hasField("defaultSLADays")
+        ? normalizeOptionalNumber(fields.defaultSLADays)
+        : normalizeOptionalNumber(existing.defaultSLADays),
       activeSiteCount: typeof existing.activeSiteCount === "number" && Number.isFinite(existing.activeSiteCount)
         ? existing.activeSiteCount
         : 0,
       status: fields.status ?? (existing.status === "inactive" ? "inactive" : "active"),
-      notes: normalizeOptionalString(fields.notes ?? existing.notes),
+      notes: hasField("notes")
+        ? normalizeOptionalString(fields.notes)
+        : normalizeOptionalString(existing.notes),
     };
 
     await ctx.db.replace(id, replacement);

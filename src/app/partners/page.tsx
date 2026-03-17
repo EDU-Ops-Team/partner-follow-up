@@ -86,6 +86,20 @@ function parseOptionalSlaDays(value: string) {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
+function parseNullableSlaDays(value: string) {
+  if (!value.trim()) {
+    return null;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseNullableText(value: string) {
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
 export default function PartnersPage() {
   const partners = useQuery(api.vendors.list, {});
   const createPartner = useMutation(api.vendors.create);
@@ -160,9 +174,9 @@ export default function PartnersPage() {
         role: editData.role,
         category: editData.category,
         contacts,
-        geographicScope: editData.geographicScope.trim() || undefined,
-        defaultSLADays: parseOptionalSlaDays(editData.defaultSLADays),
-        notes: editData.notes.trim() || undefined,
+        geographicScope: parseNullableText(editData.geographicScope),
+        defaultSLADays: parseNullableSlaDays(editData.defaultSLADays),
+        notes: parseNullableText(editData.notes),
       });
       setEditingId(null);
     } catch (error) {
