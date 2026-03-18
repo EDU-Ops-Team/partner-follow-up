@@ -4,7 +4,8 @@ import { parse } from "csv-parse/sync";
 import { logger } from "../lib/logger";
 import { withRetry } from "../lib/retry";
 import type { AirtableRow } from "../lib/types";
-import { normalizeAddress } from "../lib/addressNormalizer";
+import { normalizeAddress, similarity } from "../lib/addressNormalizer";
+import { ADDRESS_MATCH_THRESHOLD } from "../lib/constants";
 
 function getEnv(name: string): string {
   const v = process.env[name];
@@ -121,9 +122,22 @@ export function selectBestAirtableRow(rows: AirtableRow[]): AirtableRow | undefi
   return [...rows].sort(compareRows)[0];
 }
 
-export function findBestAirtableRow(rows: AirtableRow[], matchedAddress: string): AirtableRow | undefined {
-  const target = normalizeAddress(matchedAddress);
-  const candidates = rows.filter((row) => normalizeAddress(row.address) === target);
+function looksLikeSameAirtableSite(rowAddress: string, targetAddress: string): boolean {
+  const normalizedRow = normalizeAddress(rowAddress);
+  const normalizedTarget = normalizeAddress(targetAddress);
+
+  if (normalizedRow === normalizedTarget) return true;
+  if (normalizedRow.startsWith(normalizedTarget) || normalizedTarget.startsWith(normalizedRow)) return true;
+
+  const rowStreet = normalizeAddress(rowAddress.split(",")[0] ?? rowAddress);
+  const targetStreet = normalizeAddress(targetAddress.split(",")[0] ?? targetAddress);
+  if (rowStreet === targetStreet) return true;
+
+  return similarity(rowStreet, targetStreet) >= ADDRESS_MATCH_THRESHOLD;
+}
+
+export function findBestAirtableRow(rows: AirtableRow[], targetAddress: string): AirtableRow | undefined {
+  const candidates = rows.filter((row) => looksLikeSameAirtableSite(row.address, targetAddress));
   return selectBestAirtableRow(candidates);
 }
 

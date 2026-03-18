@@ -91,7 +91,7 @@ export const run = internalAction({
 
           const lidarMatch = matchAddress(currentSite.siteAddress, airtableAddresses);
           if (lidarMatch.matched && lidarMatch.matchedAddress) {
-            const row = findBestAirtableRow(airtableRows, lidarMatch.matchedAddress);
+            const row = findBestAirtableRow(airtableRows, currentSite.siteAddress);
             if (row) {
               const updates: Record<string, unknown> = {
                 fullAddress: lidarMatch.matchedAddress,

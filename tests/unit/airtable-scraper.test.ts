@@ -4,6 +4,7 @@ import {
   extractSharedViewId,
   extractCsvDownloadUrlFromHtml,
   parseAirtableCsv,
+  findBestAirtableRow,
   selectBestAirtableRow,
 } from "../../convex/services/airtableScraper";
 
@@ -115,6 +116,29 @@ describe("selectBestAirtableRow", () => {
 
     expect(selected).toEqual({
       address: "620 5th Ave S, Kirkland, WA",
+      jobStatus: "Pending",
+      dataAsOf: "2026-03-18T17:00:00.000Z",
+    });
+  });
+});
+
+describe("findBestAirtableRow", () => {
+  it("selects the best duplicate even when address formatting differs", () => {
+    const selected = findBestAirtableRow([
+      {
+        address: "620 5th Ave S, Kirkland, WA, King County, USA, 98033",
+        jobStatus: "Expired Contract",
+        dataAsOf: "2026-03-06T21:33:00.000Z",
+      },
+      {
+        address: "620 5th Ave South, Kirkland, WA",
+        jobStatus: "Pending",
+        dataAsOf: "2026-03-18T17:00:00.000Z",
+      },
+    ], "620 5th Avenue");
+
+    expect(selected).toEqual({
+      address: "620 5th Ave South, Kirkland, WA",
       jobStatus: "Pending",
       dataAsOf: "2026-03-18T17:00:00.000Z",
     });

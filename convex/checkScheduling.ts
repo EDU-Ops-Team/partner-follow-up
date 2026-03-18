@@ -80,7 +80,7 @@ export const run = internalAction({
           if (!currentSite.lidarScheduled) {
             const match = matchAddress(currentSite.siteAddress, airtableAddresses);
             if (match.matched && match.matchedAddress) {
-              const row = findBestAirtableRow(airtableRows, match.matchedAddress);
+              const row = findBestAirtableRow(airtableRows, currentSite.siteAddress);
               if (row) {
                 const updates: Record<string, unknown> = {
                   fullAddress: match.matchedAddress,
