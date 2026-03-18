@@ -67,6 +67,7 @@ export const run = internalAction({
 
       const airtableAddresses = airtableRows.map((r) => r.address);
       const inspectionAddresses = inspectionRows.map((r) => r.address);
+      const inspectionLookupSucceeded = !result.errors.some((error) => error.startsWith("Sheets:"));
       const chatWebhook = getEnv("GOOGLE_CHAT_WEBHOOK_URL");
 
       for (const site of dueSites) {
@@ -130,36 +131,58 @@ export const run = internalAction({
           }
 
           const inspectionMatch = matchAddress(currentSite.siteAddress, inspectionAddresses);
-          if (inspectionMatch.matched && inspectionMatch.matchedAddress) {
-            const row = inspectionRows.find((r) => r.address === inspectionMatch.matchedAddress);
-            if (row) {
-              const updates: Record<string, unknown> = {
-                inspectionScheduled: Boolean(row.inspectionDate) || currentSite.inspectionScheduled,
-                inspectionContactEmail: INSPECTION_CONTACT_EMAIL,
-                inspectionContactName: INSPECTION_CONTACT_NAME,
-              };
-              if (row.inspectionDate) updates.inspectionDate = row.inspectionDate;
-              if (row.inspectionTime) updates.inspectionTime = row.inspectionTime;
-              if (row.reportDueDate) updates.reportDueDate = row.reportDueDate;
-              if (row.reportReceived) updates.reportReceived = true;
-              if (row.reportLink) updates.reportLink = row.reportLink;
+          const inspectionRow = inspectionMatch.matched && inspectionMatch.matchedAddress
+            ? inspectionRows.find((r) => r.address === inspectionMatch.matchedAddress)
+            : undefined;
+          if (inspectionRow) {
+            const updates: Record<string, unknown> = {
+              inspectionScheduled: Boolean(inspectionRow.inspectionDate),
+              inspectionContactEmail: INSPECTION_CONTACT_EMAIL,
+              inspectionContactName: INSPECTION_CONTACT_NAME,
+            };
+            if (inspectionRow.inspectionDate) updates.inspectionDate = inspectionRow.inspectionDate;
+            else updates.inspectionDate = undefined;
+            if (inspectionRow.inspectionTime) updates.inspectionTime = inspectionRow.inspectionTime;
+            else updates.inspectionTime = undefined;
+            if (inspectionRow.reportDueDate) updates.reportDueDate = inspectionRow.reportDueDate;
+            else updates.reportDueDate = undefined;
+            if (inspectionRow.reportReceived) updates.reportReceived = true;
+            if (inspectionRow.reportLink) updates.reportLink = inspectionRow.reportLink;
 
-              applyUpdates(updates);
-              await ctx.runMutation(internal.auditLogs.create, {
-                siteId: site._id,
-                action: "inspection_completion_check",
-                details: {
-                  found: true,
-                  inspectionDate: row.inspectionDate,
-                  inspectionTime: row.inspectionTime,
-                  reportDueDate: row.reportDueDate,
-                  reportReceived: row.reportReceived,
-                  reportLink: row.reportLink,
-                  confidence: inspectionMatch.confidence,
-                },
-                level: "info",
-              });
-            }
+            applyUpdates(updates);
+            await ctx.runMutation(internal.auditLogs.create, {
+              siteId: site._id,
+              action: "inspection_completion_check",
+              details: {
+                found: true,
+                inspectionDate: inspectionRow.inspectionDate,
+                inspectionTime: inspectionRow.inspectionTime,
+                reportDueDate: inspectionRow.reportDueDate,
+                reportReceived: inspectionRow.reportReceived,
+                reportLink: inspectionRow.reportLink,
+                confidence: inspectionMatch.confidence,
+              },
+              level: "info",
+            });
+          } else if (
+            inspectionLookupSucceeded &&
+            (currentSite.inspectionScheduled || currentSite.inspectionDate || currentSite.inspectionTime || currentSite.reportDueDate)
+          ) {
+            applyUpdates({
+              inspectionScheduled: false,
+              inspectionDate: undefined,
+              inspectionTime: undefined,
+              reportDueDate: undefined,
+            });
+            await ctx.runMutation(internal.auditLogs.create, {
+              siteId: site._id,
+              action: "inspection_completion_check",
+              details: {
+                found: false,
+                clearedStaleInspection: true,
+              },
+              level: "info",
+            });
           }
 
           applyUpdates({ ...deriveTrackingState(currentSite) });
