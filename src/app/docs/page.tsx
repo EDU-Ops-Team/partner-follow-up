@@ -267,26 +267,12 @@ export default function DocsPage() {
           "Prompt editing in team Git",
           "Prompt changes should be managed like controlled operational config: versioned, reviewable, and deploy-backed."
         )}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <div className="bg-white border border-gray-200 rounded-xl p-5 lg:col-span-2">
-            <h3 className="text-sm font-semibold text-gray-900">Recommended workflow</h3>
-            <ol className="mt-3 space-y-2 text-sm leading-6 text-gray-600 list-decimal pl-5">
-              <li>Keep the shared repo in a team Git org where approved operators can edit prompt markdown files.</li>
-              <li>Make changes only in <code>prompt-sources/</code>, not in generated files.</li>
-              <li>Prefer pull requests for prompt changes until the team has enough operating discipline to allow direct edits.</li>
-              <li>Let the build run <code>npm run prompts:sync</code> so markdown is converted into deploy-safe TypeScript before Vercel and Convex deploy.</li>
-              <li>Use the review insights dashboard after deploy to see whether the prompt change actually improved pass rate or reduced risky edits.</li>
-            </ol>
-          </div>
-          <div className="bg-blue-50 border border-blue-200 rounded-xl p-5">
-            <h3 className="text-sm font-semibold text-blue-900">One-time repo setup</h3>
-            <ul className="mt-3 space-y-2 text-sm leading-6 text-blue-900">
-              <li>Move or mirror this repo into the team Git organization.</li>
-              <li>Set branch protection or PR review rules for prompt edits.</li>
-              <li>Set <code>NEXT_PUBLIC_PROMPT_EDIT_BASE_URL</code> to your repo web edit path for <code>prompt-sources</code>.</li>
-              <li>Optionally set <code>NEXT_PUBLIC_PROMPT_BROWSE_BASE_URL</code> to the repo browse path for <code>prompt-sources</code>.</li>
-            </ul>
-          </div>
+        <div className="bg-white border border-gray-200 rounded-xl p-5">
+          <p className="text-sm leading-6 text-gray-600 max-w-4xl">
+            Approved users should edit the markdown files in <code>prompt-sources/</code> through the shared Git repository.
+            The build converts those markdown files into the generated prompt library before Vercel and Convex deploy, so
+            prompt changes stay reviewable and do not rely on runtime file reads.
+          </p>
         </div>
 
         <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
