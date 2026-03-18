@@ -141,11 +141,11 @@ export const run = internalAction({
               inspectionContactName: INSPECTION_CONTACT_NAME,
             };
             if (inspectionRow.inspectionDate) updates.inspectionDate = inspectionRow.inspectionDate;
-            else updates.inspectionDate = undefined;
+            else updates.inspectionDate = "";
             if (inspectionRow.inspectionTime) updates.inspectionTime = inspectionRow.inspectionTime;
-            else updates.inspectionTime = undefined;
+            else updates.inspectionTime = "";
             if (inspectionRow.reportDueDate) updates.reportDueDate = inspectionRow.reportDueDate;
-            else updates.reportDueDate = undefined;
+            else updates.reportDueDate = "";
             if (inspectionRow.reportReceived) updates.reportReceived = true;
             if (inspectionRow.reportLink) updates.reportLink = inspectionRow.reportLink;
 
@@ -170,9 +170,9 @@ export const run = internalAction({
           ) {
             applyUpdates({
               inspectionScheduled: false,
-              inspectionDate: undefined,
-              inspectionTime: undefined,
-              reportDueDate: undefined,
+              inspectionDate: "",
+              inspectionTime: "",
+              reportDueDate: "",
             });
             await ctx.runMutation(internal.auditLogs.create, {
               siteId: site._id,

@@ -152,9 +152,9 @@ export const run = internalAction({
           ) {
             applyUpdates({
               inspectionScheduled: false,
-              inspectionDate: undefined,
-              inspectionTime: undefined,
-              reportDueDate: undefined,
+              inspectionDate: "",
+              inspectionTime: "",
+              reportDueDate: "",
             });
             await ctx.runMutation(internal.auditLogs.create, {
               siteId: site._id,
