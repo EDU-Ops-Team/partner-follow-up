@@ -31,6 +31,7 @@ import type * as lib_addressNormalizer from "../lib/addressNormalizer.js";
 import type * as lib_businessDays from "../lib/businessDays.js";
 import type * as lib_constants from "../lib/constants.js";
 import type * as lib_holidayData from "../lib/holidayData.js";
+import type * as lib_learningInsights from "../lib/learningInsights.js";
 import type * as lib_logger from "../lib/logger.js";
 import type * as lib_retry from "../lib/retry.js";
 import type * as lib_reviewDiff from "../lib/reviewDiff.js";
@@ -86,6 +87,7 @@ declare const fullApi: ApiFromModules<{
   "lib/businessDays": typeof lib_businessDays;
   "lib/constants": typeof lib_constants;
   "lib/holidayData": typeof lib_holidayData;
+  "lib/learningInsights": typeof lib_learningInsights;
   "lib/logger": typeof lib_logger;
   "lib/retry": typeof lib_retry;
   "lib/reviewDiff": typeof lib_reviewDiff;
