@@ -74,6 +74,12 @@ export const run = internalAction({
             Object.assign(pendingUpdates, updates);
           };
 
+          applyUpdates({
+            trackingUpdatedAt: now,
+            lidarLastCheckedAt: now,
+            inspectionLastCheckedAt: now,
+          });
+
           const latestTrigger = site.triggerEmails?.[site.triggerEmails.length - 1];
           const threadOpts: ThreadingOptions | undefined = (latestTrigger?.threadId ?? site.triggerThreadId)
             ? {
@@ -310,6 +316,7 @@ export const run = internalAction({
     return result;
   },
 });
+
 
 
 

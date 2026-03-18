@@ -8,14 +8,6 @@ import { deriveTrackingState, formatTrackingStateLabel, isLidarComplete, type Tr
 
 // ── Badges ──
 
-function phaseBadge(phase: string) {
-  const colors: Record<string, string> = {
-    scheduling: "bg-yellow-100 text-yellow-800",
-    completion: "bg-blue-100 text-blue-800",
-    resolved: "bg-green-100 text-green-800",
-  };
-  return `inline-block px-2 py-1 rounded text-xs font-medium ${colors[phase] ?? "bg-gray-100"}`;
-}
 
 function trackingBadge(status: TrackingStatus, scope: TrackingScope) {
   const colors: Record<TrackingStatus, string> = {
@@ -121,6 +113,20 @@ function formatDate(ms?: number) {
   return new Date(ms).toLocaleDateString(undefined, {
     month: "short", day: "numeric", year: "numeric",
   });
+}
+function freshnessBadge(ms?: number) {
+  if (!ms) {
+    return <span className="text-xs text-gray-400">Not pulled yet</span>;
+  }
+
+  const ageMinutes = Math.floor((Date.now() - ms) / 60000);
+  const tone = ageMinutes <= 45
+    ? "text-green-600"
+    : ageMinutes <= 180
+      ? "text-yellow-600"
+      : "text-red-500";
+
+  return <span className={`text-xs font-medium ${tone}`}>{timeAgo(ms)}</span>;
 }
 
 function statusDot(ok: boolean) {
@@ -292,6 +298,9 @@ function SiteCard({ site }: { site: {
   reportReminderCount: number;
   trackingStatus?: TrackingStatus;
   trackingScope?: TrackingScope;
+  trackingUpdatedAt?: number;
+  lidarLastCheckedAt?: number;
+  inspectionLastCheckedAt?: number;
 } }) {
   const [expanded, setExpanded] = useState(false);
   const trackingState = site.trackingStatus && site.trackingScope
@@ -314,7 +323,6 @@ function SiteCard({ site }: { site: {
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
             <h2 className="text-lg font-semibold">{site.fullAddress ?? site.siteAddress}</h2>
-            <span className={phaseBadge(site.phase)}>{site.phase}</span>
             {trackingBadge(trackingState.trackingStatus, trackingState.trackingScope)}
             <span className="text-gray-400 text-sm">{expanded ? "\u25B2" : "\u25BC"}</span>
           </div>
@@ -379,6 +387,24 @@ function SiteCard({ site }: { site: {
               <div className="flex justify-between">
                 <span className="text-gray-500">Tracking Status</span>
                 <span className="text-gray-800">{formatTrackingStateLabel(trackingState.trackingStatus, trackingState.trackingScope)}</span>
+              </div>
+              <div className="flex justify-between items-center gap-3">
+                <span className="text-gray-500">Tracking Pulled</span>
+                <span className="text-right text-gray-800">
+                  {site.trackingUpdatedAt ? formatDatetime(site.trackingUpdatedAt) : "\u2014"}
+                </span>
+              </div>
+              <div className="flex justify-between items-center gap-3">
+                <span className="text-gray-500">LiDAR Source</span>
+                <span className="text-right text-gray-800">
+                  {site.lidarLastCheckedAt ? formatDatetime(site.lidarLastCheckedAt) : "\u2014"} {freshnessBadge(site.lidarLastCheckedAt)}
+                </span>
+              </div>
+              <div className="flex justify-between items-center gap-3">
+                <span className="text-gray-500">Inspection Source</span>
+                <span className="text-right text-gray-800">
+                  {site.inspectionLastCheckedAt ? formatDatetime(site.inspectionLastCheckedAt) : "\u2014"} {freshnessBadge(site.inspectionLastCheckedAt)}
+                </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-500">Responsible Party</span>
@@ -542,5 +568,6 @@ export default function Dashboard() {
     </main>
   );
 }
+
 
 

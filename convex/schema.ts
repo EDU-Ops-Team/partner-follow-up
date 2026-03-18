@@ -69,6 +69,9 @@ export default defineSchema({
       v.literal("inspection"),
       v.literal("both")
     )),
+    trackingUpdatedAt: v.optional(v.number()),
+    lidarLastCheckedAt: v.optional(v.number()),
+    inspectionLastCheckedAt: v.optional(v.number()),
     lastOutreachDate: v.optional(v.number()),
     schedulingReminderCount: v.number(),
     bothScheduledNotified: v.boolean(),
@@ -311,3 +314,4 @@ export default defineSchema({
     .index("by_googleId", ["googleId"])
     .index("by_email", ["email"]),
 });
+

@@ -71,6 +71,12 @@ export const run = internalAction({
             Object.assign(pendingUpdates, updates);
           };
 
+          applyUpdates({
+            trackingUpdatedAt: now,
+            lidarLastCheckedAt: now,
+            inspectionLastCheckedAt: now,
+          });
+
           if (!currentSite.lidarScheduled) {
             const match = matchAddress(currentSite.siteAddress, airtableAddresses);
             if (match.matched && match.matchedAddress) {
@@ -216,5 +222,6 @@ export const run = internalAction({
     return result;
   },
 });
+
 
 
