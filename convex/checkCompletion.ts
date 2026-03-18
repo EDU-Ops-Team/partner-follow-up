@@ -7,7 +7,7 @@ import {
   INSPECTION_CONTACT_EMAIL,
   INSPECTION_CONTACT_NAME,
 } from "./lib/constants";
-import { fetchAirtableData } from "./services/airtableScraper";
+import { fetchAirtableData, findBestAirtableRow } from "./services/airtableScraper";
 import { fetchInspectionData } from "./services/googleSheets";
 import { postToChat } from "./services/googleChat";
 import { sendEmail, type ThreadingOptions } from "./services/agentGmail";
@@ -91,7 +91,7 @@ export const run = internalAction({
 
           const lidarMatch = matchAddress(currentSite.siteAddress, airtableAddresses);
           if (lidarMatch.matched && lidarMatch.matchedAddress) {
-            const row = airtableRows.find((r) => r.address === lidarMatch.matchedAddress);
+            const row = findBestAirtableRow(airtableRows, lidarMatch.matchedAddress);
             if (row) {
               const updates: Record<string, unknown> = {
                 fullAddress: lidarMatch.matchedAddress,

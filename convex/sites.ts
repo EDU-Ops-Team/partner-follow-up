@@ -250,6 +250,9 @@ export const adminUpdate = mutation({
   args: {
     id: v.id("sites"),
     updates: v.object({
+      siteAddress: v.optional(v.string()),
+      fullAddress: v.optional(v.string()),
+      normalizedAddress: v.optional(v.string()),
       phase: v.optional(v.union(
         v.literal("scheduling"),
         v.literal("completion"),

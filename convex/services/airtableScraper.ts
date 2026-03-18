@@ -4,6 +4,7 @@ import { parse } from "csv-parse/sync";
 import { logger } from "../lib/logger";
 import { withRetry } from "../lib/retry";
 import type { AirtableRow } from "../lib/types";
+import { normalizeAddress } from "../lib/addressNormalizer";
 
 function getEnv(name: string): string {
   const v = process.env[name];
@@ -84,6 +85,46 @@ function parseAirtableCsv(csvText: string): AirtableRow[] {
   return records
     .map((record) => mapRowToAirtable(record))
     .filter((row) => row.address);
+}
+
+function parseDateValue(value?: string): number {
+  if (!value) return 0;
+  const parsed = new Date(value).getTime();
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function statusPriority(status?: string): number {
+  if (!status) return 0;
+  const normalized = status.toLowerCase().trim();
+  if (["complete", "completed", "done", "finished"].includes(normalized)) return 5;
+  if (normalized.includes("scheduled")) return 4;
+  if (normalized.includes("pending") || normalized.includes("in progress")) return 3;
+  if (normalized.includes("expired") || normalized.includes("cancel")) return 1;
+  return 2;
+}
+
+function compareRows(a: AirtableRow, b: AirtableRow): number {
+  const statusDiff = statusPriority(b.jobStatus) - statusPriority(a.jobStatus);
+  if (statusDiff !== 0) return statusDiff;
+
+  const dataAsOfDiff = parseDateValue(b.dataAsOf) - parseDateValue(a.dataAsOf);
+  if (dataAsOfDiff !== 0) return dataAsOfDiff;
+
+  const scheduledDiff = parseDateValue(b.scheduledDate) - parseDateValue(a.scheduledDate);
+  if (scheduledDiff !== 0) return scheduledDiff;
+
+  return b.address.length - a.address.length;
+}
+
+export function selectBestAirtableRow(rows: AirtableRow[]): AirtableRow | undefined {
+  if (rows.length === 0) return undefined;
+  return [...rows].sort(compareRows)[0];
+}
+
+export function findBestAirtableRow(rows: AirtableRow[], matchedAddress: string): AirtableRow | undefined {
+  const target = normalizeAddress(matchedAddress);
+  const candidates = rows.filter((row) => normalizeAddress(row.address) === target);
+  return selectBestAirtableRow(candidates);
 }
 
 interface AirtableApiResponse {

@@ -11,17 +11,44 @@ function extractName(str: string): string {
   return match ? match[1].trim() : "";
 }
 
-function extractAddress(text: string): string | null {
+function findAddressMatches(text: string): string[] {
   const patterns = [
     /(\d+\s+[\w\s]+(?:street|st|avenue|ave|boulevard|blvd|drive|dr|lane|ln|road|rd|court|ct|place|pl|circle|cir|way|terrace|ter|highway|hwy|parkway|pkwy)[.,]?\s*(?:(?:apt|ste|suite|unit|#)\s*[\w-]+[.,]?\s*)?[\w\s]+,\s*[A-Z]{2}\s*\d{5}(?:-\d{4})?)/i,
     /(\d+\s+[\w\s]+(?:street|st|avenue|ave|boulevard|blvd|drive|dr|lane|ln|road|rd|court|ct|place|pl|circle|cir|way|terrace|ter|highway|hwy|parkway|pkwy)[.,]?\s*(?:(?:apt|ste|suite|unit|#)\s*[\w-]+[.,]?\s*)?[\w\s]+,\s*[A-Z]{2})/i,
     /(\d+\s+[\w\s]+(?:street|st|avenue|ave|boulevard|blvd|drive|dr|lane|ln|road|rd|court|ct|place|pl|circle|cir|way|terrace|ter|highway|hwy|parkway|pkwy))/i,
   ];
+  const matches: string[] = [];
   for (const pattern of patterns) {
     const match = text.match(pattern);
-    if (match) return match[1].trim();
+    if (match) matches.push(match[1].trim());
   }
-  return null;
+  return matches;
+}
+
+function scoreAddressCandidate(address: string): number {
+  let score = address.length;
+  if (/\b[A-Z]{2}\s*\d{5}(?:-\d{4})?$/i.test(address)) score += 100;
+  else if (/\b[A-Z]{2}$/i.test(address)) score += 60;
+  else if (address.includes(",")) score += 20;
+  return score;
+}
+
+function extractAddress(text: string): string[] {
+  return findAddressMatches(text)
+    .filter(isValidAddress)
+    .sort((a, b) => scoreAddressCandidate(b) - scoreAddressCandidate(a));
+}
+
+function stripQuotedContent(text: string): string {
+  const lines: string[] = [];
+  for (const line of text.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (/^on .+wrote:$/i.test(trimmed)) break;
+    if (/^(from|sent|to|subject):/i.test(trimmed)) break;
+    if (trimmed.startsWith(">")) continue;
+    lines.push(line);
+  }
+  return lines.join("\n");
 }
 
 /**
@@ -46,7 +73,22 @@ function isValidAddress(address: string): boolean {
 }
 
 export function extractSiteInfo(email: ParsedEmail): ExtractedSiteInfo | null {
-  const rawAddress = extractAddress(email.body) ?? extractAddress(email.subject);
+  const bodyWithoutQuotes = stripQuotedContent(email.body);
+  const rawAddress = [
+    ...extractAddress(bodyWithoutQuotes).map((address) => ({
+      address,
+      score: scoreAddressCandidate(address) + 20,
+    })),
+    ...extractAddress(email.subject).map((address) => ({
+      address,
+      score: scoreAddressCandidate(address) + 10,
+    })),
+    ...extractAddress(email.body).map((address) => ({
+      address,
+      score: scoreAddressCandidate(address),
+    })),
+  ]
+    .sort((a, b) => b.score - a.score)[0]?.address ?? null;
   const address = rawAddress && isValidAddress(rawAddress) ? rawAddress : null;
   if (!address) {
     logger.warn("Could not extract address from email", { messageId: email.messageId, subject: email.subject });

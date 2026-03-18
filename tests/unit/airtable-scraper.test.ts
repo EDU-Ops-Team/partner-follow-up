@@ -4,6 +4,7 @@ import {
   extractSharedViewId,
   extractCsvDownloadUrlFromHtml,
   parseAirtableCsv,
+  selectBestAirtableRow,
 } from "../../convex/services/airtableScraper";
 
 describe("extractIds", () => {
@@ -94,5 +95,28 @@ describe("parseAirtableCsv", () => {
         modelUrl: "https://example.com/model",
       },
     ]);
+  });
+});
+
+describe("selectBestAirtableRow", () => {
+  it("prefers active newer rows over expired duplicates", () => {
+    const selected = selectBestAirtableRow([
+      {
+        address: "620 5th Ave S, Kirkland, WA",
+        jobStatus: "Expired Contract",
+        dataAsOf: "2026-03-06T21:33:00.000Z",
+      },
+      {
+        address: "620 5th Ave S, Kirkland, WA",
+        jobStatus: "Pending",
+        dataAsOf: "2026-03-18T17:00:00.000Z",
+      },
+    ]);
+
+    expect(selected).toEqual({
+      address: "620 5th Ave S, Kirkland, WA",
+      jobStatus: "Pending",
+      dataAsOf: "2026-03-18T17:00:00.000Z",
+    });
   });
 });

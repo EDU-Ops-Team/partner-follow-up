@@ -67,6 +67,24 @@ describe("extractSiteInfo", () => {
     expect(result!.responsiblePartyEmail).toBe("john@vendor.com");
     expect(result!.responsiblePartyName).toBe("John Smith");
   });
+
+  it("prefers the subject address over a quoted older body address", () => {
+    const result = extractSiteInfo(makeEmail({
+      subject: "Fwd: New Site Kickoff: 995 Oak Creek Drive, Lombard, IL 60148",
+      body: `New site details above.\n\nOn Tue someone wrote:\n835 Oak Creek Drive, Lombard, IL 60148`,
+    }));
+    expect(result).not.toBeNull();
+    expect(result!.address).toContain("995 Oak Creek Drive");
+  });
+
+  it("ignores quoted forwarded content when extracting the address", () => {
+    const result = extractSiteInfo(makeEmail({
+      subject: "Please schedule this site",
+      body: `Please schedule the site below:\n995 Oak Creek Drive, Lombard, IL 60148\n\n> 835 Oak Creek Drive, Lombard, IL 60148`,
+    }));
+    expect(result).not.toBeNull();
+    expect(result!.address).toContain("995 Oak Creek Drive");
+  });
 });
 
 describe("isTriggerEmail", () => {
