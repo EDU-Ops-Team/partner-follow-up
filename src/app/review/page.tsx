@@ -29,6 +29,21 @@ type LearningInsights = {
   byType: InsightTypeSummary[];
 };
 
+type ReviewedExample = {
+  draftId: string;
+  classificationType: string;
+  status: "approved" | "edited" | "rejected";
+  pass: boolean;
+  reviewedAt: number;
+  subject: string;
+  from: string;
+  originalBody: string;
+  sentBody: string | null;
+  editDistance: number | null;
+  editCategories: string[];
+  reviewerName: string | null;
+};
+
 function tierBadge(tier: number) {
   if (tier === 1) return <span className="px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-700">Tier 1</span>;
   if (tier === 2) return <span className="px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-700">Tier 2</span>;
@@ -72,6 +87,24 @@ function timeAgo(ms: number): string {
   return `${days}d ago`;
 }
 
+function formatDatetime(ms: number): string {
+  return new Date(ms).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function htmlToText(html: string): string {
+  return html
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n\n")
+    .replace(/<[^>]*>/g, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 function pct(value: number): string {
   return `${Math.round(value * 100)}%`;
 }
@@ -89,6 +122,10 @@ function summaryCard(label: string, value: string, subtext: string) {
 export default function ReviewQueue() {
   const [drafts, setDrafts] = useState<DraftEmail[] | null>(null);
   const [insights, setInsights] = useState<LearningInsights | null>(null);
+  const [selectedType, setSelectedType] = useState<string | null>(null);
+  const [examples, setExamples] = useState<ReviewedExample[] | null>(null);
+  const [examplesLoading, setExamplesLoading] = useState(false);
+  const [examplesError, setExamplesError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -116,6 +153,44 @@ export default function ReviewQueue() {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!selectedType) {
+      setExamples(null);
+      setExamplesError(null);
+      setExamplesLoading(false);
+      return;
+    }
+
+    let active = true;
+    setExamplesLoading(true);
+    setExamplesError(null);
+
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/review/insights/examples?type=${encodeURIComponent(selectedType)}&limit=8`,
+          { cache: "no-store" }
+        );
+        if (!res.ok) throw new Error(`Examples request failed (${res.status})`);
+
+        const data = (await res.json()) as { examples: ReviewedExample[] };
+        if (!active) return;
+        setExamples(data.examples);
+      } catch (err) {
+        if (active) {
+          setExamplesError(err instanceof Error ? err.message : "Failed to load examples");
+          setExamples([]);
+        }
+      } finally {
+        if (active) setExamplesLoading(false);
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [selectedType]);
 
   const pendingCount = useMemo(
     () => (drafts ?? []).filter((draft) => draft.status === "pending").length,
@@ -184,6 +259,7 @@ export default function ReviewQueue() {
                     <th className="px-4 py-3 text-left font-medium">Avg Distance</th>
                     <th className="px-4 py-3 text-left font-medium">Top Edit Patterns</th>
                     <th className="px-4 py-3 text-left font-medium">Gate</th>
+                    <th className="px-4 py-3 text-left font-medium">Examples</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -218,11 +294,133 @@ export default function ReviewQueue() {
                           {item.readyForGate ? "20+ reviews" : "Need 20 reviews"}
                         </span>
                       </td>
+                      <td className="px-4 py-3">
+                        <button
+                          onClick={() =>
+                            setSelectedType((current) =>
+                              current === item.classificationType ? null : item.classificationType
+                            )
+                          }
+                          className={`px-3 py-1.5 rounded-md text-xs font-medium border transition-colors ${
+                            selectedType === item.classificationType
+                              ? "bg-gray-900 text-white border-gray-900"
+                              : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
+                          }`}
+                        >
+                          {selectedType === item.classificationType ? "Hide" : "View"} examples
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+          </div>
+        )}
+
+        {selectedType && (
+          <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-semibold text-gray-900">
+                  Reviewed examples for {classificationLabel(selectedType)}
+                </h3>
+                <p className="text-sm text-gray-500 mt-1">
+                  Recent reviewed drafts behind this metric. Use these to spot recurring edits before changing prompts or policy.
+                </p>
+              </div>
+              <button
+                onClick={() => setSelectedType(null)}
+                className="text-xs text-gray-500 hover:text-gray-700"
+              >
+                Close
+              </button>
+            </div>
+
+            {examplesLoading ? (
+              <div className="text-sm text-gray-400 py-6 text-center">Loading examples...</div>
+            ) : examplesError ? (
+              <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">
+                {examplesError}
+              </div>
+            ) : examples && examples.length > 0 ? (
+              <div className="space-y-3">
+                {examples.map((example) => (
+                  <div key={example.draftId} className="border border-gray-200 rounded-lg p-4">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="space-y-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {statusBadge(example.status)}
+                          <span
+                            className={`px-2 py-0.5 rounded text-xs font-medium ${
+                              example.pass
+                                ? "bg-green-100 text-green-700"
+                                : "bg-gray-100 text-gray-700"
+                            }`}
+                          >
+                            {example.pass ? "Pass" : "Needs work"}
+                          </span>
+                          {example.editDistance !== null && (
+                            <span className="text-xs text-gray-500">
+                              Edit distance {example.editDistance.toFixed(3)}
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-sm font-medium text-gray-900">{example.subject}</div>
+                        <div className="text-xs text-gray-500">
+                          From {example.from} • Reviewed {formatDatetime(example.reviewedAt)}
+                          {example.reviewerName ? ` • ${example.reviewerName}` : ""}
+                        </div>
+                      </div>
+                      <Link
+                        href={`/review/${example.draftId}`}
+                        className="text-xs font-medium text-blue-600 hover:text-blue-700 whitespace-nowrap"
+                      >
+                        Open draft
+                      </Link>
+                    </div>
+
+                    <div className="mt-3 grid grid-cols-1 lg:grid-cols-2 gap-3">
+                      <div className="rounded border border-gray-100 bg-gray-50 p-3">
+                        <div className="text-xs font-medium uppercase tracking-wide text-gray-500 mb-2">
+                          Agent Draft
+                        </div>
+                        <div className="text-sm text-gray-700 whitespace-pre-wrap">
+                          {htmlToText(example.originalBody).slice(0, 600) || "No draft body"}
+                        </div>
+                      </div>
+                      <div className="rounded border border-gray-100 bg-green-50 p-3">
+                        <div className="text-xs font-medium uppercase tracking-wide text-gray-500 mb-2">
+                          Sent Version
+                        </div>
+                        <div className="text-sm text-gray-700 whitespace-pre-wrap">
+                          {example.sentBody ? htmlToText(example.sentBody).slice(0, 600) : "No sent version"}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {example.editCategories.length === 0 ? (
+                        <span className="text-xs text-gray-400">No edit categories recorded</span>
+                      ) : (
+                        example.editCategories.map((category) => (
+                          <span
+                            key={category}
+                            className="px-2 py-1 rounded bg-blue-50 text-blue-700 text-xs font-medium"
+                          >
+                            {category}
+                          </span>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-sm text-gray-400 py-6 text-center">
+                No reviewed examples found for this type yet.
+              </div>
+            )}
           </div>
         )}
       </section>

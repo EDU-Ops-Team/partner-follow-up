@@ -133,6 +133,86 @@ export const getInsights = query({
   },
 });
 
+export const getReviewedExamples = query({
+  args: {
+    apiKey: v.string(),
+    classificationType: v.string(),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, { apiKey, classificationType, limit }) => {
+    requireApiKey(apiKey);
+
+    const classifications = await ctx.db
+      .query("emailClassifications")
+      .withIndex("by_classificationType", (q) => q.eq("classificationType", classificationType))
+      .collect();
+
+    if (classifications.length === 0) {
+      return [];
+    }
+
+    const classificationById = new Map(
+      classifications.map((classification) => [classification._id, classification] as const)
+    );
+
+    const draftGroups = await Promise.all(
+      classifications.map((classification) =>
+        ctx.db
+          .query("draftEmails")
+          .withIndex("by_classificationId", (q) => q.eq("classificationId", classification._id))
+          .collect()
+      )
+    );
+
+    const reviewedDrafts = draftGroups
+      .flat()
+      .filter(
+        (draft) =>
+          draft.status === "approved" ||
+          draft.status === "edited" ||
+          draft.status === "rejected"
+      )
+      .sort((a, b) => (b.reviewedAt ?? b.createdAt) - (a.reviewedAt ?? a.createdAt))
+      .slice(0, limit ?? 10);
+
+    const reviewerIds = Array.from(
+      new Set(
+        reviewedDrafts
+          .map((draft) => draft.reviewedBy)
+          .filter((reviewerId): reviewerId is NonNullable<typeof reviewerId> => reviewerId !== undefined)
+      )
+    );
+    const reviewers = new Map(
+      await Promise.all(
+        reviewerIds.map(async (reviewerId) => [reviewerId, await ctx.db.get(reviewerId)] as const)
+      )
+    );
+
+    return reviewedDrafts.map((draft) => {
+      const classification = classificationById.get(draft.classificationId);
+      const reviewer = draft.reviewedBy ? reviewers.get(draft.reviewedBy) : null;
+      const pass =
+        draft.status !== "rejected" &&
+        (draft.editDistance ?? (draft.editsMade ? 1 : 0)) <= 0.02;
+
+      return {
+        draftId: draft._id,
+        classificationType,
+        status: draft.status,
+        pass,
+        reviewedAt: draft.reviewedAt ?? draft.createdAt,
+        subject: classification?.subject ?? draft.originalSubject,
+        from: classification?.from ?? "Unknown sender",
+        originalBody: draft.originalBody,
+        sentBody: draft.sentBody ?? null,
+        editDistance: draft.editDistance ?? null,
+        editCategories: draft.editCategories ?? [],
+        reviewerName: reviewer?.name ?? reviewer?.email ?? null,
+      };
+    });
+  },
+});
+
 // Internal Queries (for actions)
 
 export const listPending = internalQuery({
