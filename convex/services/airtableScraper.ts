@@ -1,5 +1,6 @@
 "use node";
 
+import { parse } from "csv-parse/sync";
 import { logger } from "../lib/logger";
 import { withRetry } from "../lib/retry";
 import type { AirtableRow } from "../lib/types";
@@ -19,6 +20,12 @@ function extractIds(url: string): { baseId: string; tableId: string } {
   if (!baseMatch) throw new Error(`Cannot extract base ID from URL: ${url}`);
   if (!tableMatch) throw new Error(`Cannot extract table ID from URL: ${url}`);
   return { baseId: baseMatch[1], tableId: tableMatch[1] };
+}
+
+function extractSharedViewId(url: string): string {
+  const shareMatch = url.match(/(shr\w+)/);
+  if (!shareMatch) throw new Error(`Cannot extract shared view ID from URL: ${url}`);
+  return shareMatch[1];
 }
 
 function mapRowToAirtable(fields: Record<string, unknown>): AirtableRow {
@@ -41,6 +48,44 @@ function mapRowToAirtable(fields: Record<string, unknown>): AirtableRow {
   };
 }
 
+function normalizeScrapedUrl(value: string): string {
+  return value
+    .replace(/\\u002F/gi, "/")
+    .replace(/\\\//g, "/")
+    .replace(/&amp;/gi, "&");
+}
+
+function extractCsvDownloadUrlFromHtml(html: string, viewUrl: string): string | null {
+  const normalizedHtml = normalizeScrapedUrl(html);
+  const patterns = [
+    /https:\/\/airtable\.com\/[^"'\\\s<]*downloadCsv[^"'\\\s<]*/i,
+    /\/v0\.3\/view\/[^"'\\\s<]*downloadCsv[^"'\\\s<]*/i,
+    /\/[^"'\\\s<]*downloadCsv[^"'\\\s<]*/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = normalizedHtml.match(pattern);
+    if (match) {
+      return new URL(match[0], viewUrl).toString();
+    }
+  }
+
+  return null;
+}
+
+function parseAirtableCsv(csvText: string): AirtableRow[] {
+  const records = parse(csvText, {
+    columns: true,
+    skip_empty_lines: true,
+    bom: true,
+    relax_column_count: true,
+  }) as Record<string, string>[];
+
+  return records
+    .map((record) => mapRowToAirtable(record))
+    .filter((row) => row.address);
+}
+
 interface AirtableApiResponse {
   records: Array<{
     id: string;
@@ -49,11 +94,50 @@ interface AirtableApiResponse {
   offset?: string;
 }
 
-/**
- * Fetch all records from an Airtable table using the official REST API.
- * Handles pagination automatically.
- */
-export async function fetchAirtableData(viewUrl: string): Promise<AirtableRow[]> {
+async function fetchSharedViewCsv(viewUrl: string): Promise<AirtableRow[]> {
+  return withRetry(async () => {
+    const response = await fetch(viewUrl, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (compatible; EDUOpsAgent/1.0)",
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Shared view fetch failed: ${response.status}`);
+    }
+
+    const html = await response.text();
+    const csvDownloadUrl =
+      extractCsvDownloadUrlFromHtml(html, viewUrl) ??
+      `${viewUrl.replace(/\/$/, "")}.csv`;
+
+    const csvResponse = await fetch(csvDownloadUrl, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (compatible; EDUOpsAgent/1.0)",
+        Accept: "text/csv,text/plain;q=0.9,*/*;q=0.8",
+      },
+    });
+
+    if (!csvResponse.ok) {
+      throw new Error(`Shared view CSV fetch failed: ${csvResponse.status}`);
+    }
+
+    const csvText = await csvResponse.text();
+    const rows = parseAirtableCsv(csvText);
+    if (rows.length === 0) {
+      throw new Error("Shared view CSV returned no rows");
+    }
+
+    logger.info("Fetched Airtable data via shared view CSV", {
+      rowCount: rows.length,
+      source: "shared_view_csv",
+      sharedViewId: extractSharedViewId(viewUrl),
+    });
+    return rows;
+  }, { maxRetries: 2, context: "airtable-shared-view-csv" });
+}
+
+async function fetchAirtableViaApi(viewUrl: string): Promise<AirtableRow[]> {
   const { baseId, tableId } = extractIds(viewUrl);
   const token = getEnv("AIRTABLE_API_TOKEN");
 
@@ -82,22 +166,63 @@ export async function fetchAirtableData(viewUrl: string): Promise<AirtableRow[]>
       offset = data.offset;
     } while (offset);
 
-    logger.info("Fetched Airtable data via API", { rowCount: allRows.length, baseId, tableId });
+    logger.info("Fetched Airtable data via API", {
+      rowCount: allRows.length,
+      baseId,
+      tableId,
+      source: "api",
+    });
     return allRows;
   }, { maxRetries: 2, context: "airtable-api" });
 }
 
+/**
+ * Fetch Airtable data, preferring shared-view CSV access when available.
+ * Falls back to the Airtable REST API when a token is configured.
+ */
+export async function fetchAirtableData(viewUrl: string): Promise<AirtableRow[]> {
+  let sharedViewError: string | null = null;
+
+  if (viewUrl.includes("shr")) {
+    try {
+      return await fetchSharedViewCsv(viewUrl);
+    } catch (error) {
+      sharedViewError = error instanceof Error ? error.message : String(error);
+      logger.warn("Shared view CSV fetch failed, falling back if possible", {
+        error: sharedViewError,
+      });
+    }
+  }
+
+  if (process.env.AIRTABLE_API_TOKEN) {
+    return fetchAirtableViaApi(viewUrl);
+  }
+
+  throw new Error(
+    sharedViewError
+      ? `Unable to fetch Airtable shared view CSV and no API token is configured: ${sharedViewError}`
+      : "Unable to fetch Airtable data: no shared view CSV path succeeded and no API token is configured"
+  );
+}
+
 export async function checkAirtableHealth(viewUrl: string): Promise<boolean> {
   try {
-    const { baseId, tableId } = extractIds(viewUrl);
+    if (viewUrl.includes("shr")) {
+      const rows = await fetchSharedViewCsv(viewUrl);
+      return rows.length > 0;
+    }
+
     const token = process.env.AIRTABLE_API_TOKEN;
     if (!token) return false;
 
+    const { baseId, tableId } = extractIds(viewUrl);
     const res = await fetch(`https://api.airtable.com/v0/${baseId}/${tableId}?maxRecords=1`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     return res.ok;
-  } catch { return false; }
+  } catch {
+    return false;
+  }
 }
 
-export { extractIds };
+export { extractIds, extractSharedViewId, extractCsvDownloadUrlFromHtml, parseAirtableCsv };
