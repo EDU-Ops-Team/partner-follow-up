@@ -1,6 +1,7 @@
 import { query, mutation, internalQuery, internalMutation } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
+import { aggregateLearningInsights } from "./lib/learningInsights";
 import { analyzeReviewDiff, plainTextToHtml } from "./lib/reviewDiff";
 
 function requireApiKey(apiKey: string): void {
@@ -51,7 +52,7 @@ async function getReviewerByIdentity(
   return null;
 }
 
-// ── Public Queries (for dashboard) ──
+// Public Queries (for dashboard)
 
 export const list = query({
   args: {
@@ -106,7 +107,33 @@ export const listBySiteId = query({
   },
 });
 
-// ── Internal Queries (for actions) ──
+export const getInsights = query({
+  args: { apiKey: v.string() },
+  handler: async (ctx, { apiKey }) => {
+    requireApiKey(apiKey);
+
+    const drafts = await ctx.db.query("draftEmails").collect();
+    const classifications = new Map(
+      await Promise.all(
+        Array.from(new Set(drafts.map((draft) => draft.classificationId))).map(async (id) => (
+          [id, await ctx.db.get(id)] as const
+        ))
+      )
+    );
+
+    return aggregateLearningInsights(
+      drafts.map((draft) => ({
+        classificationType: classifications.get(draft.classificationId)?.classificationType ?? "unknown",
+        status: draft.status,
+        editsMade: draft.editsMade,
+        editDistance: draft.editDistance,
+        editCategories: draft.editCategories,
+      }))
+    );
+  },
+});
+
+// Internal Queries (for actions)
 
 export const listPending = internalQuery({
   handler: async (ctx) => {
@@ -134,7 +161,7 @@ export const getByIdInternal = internalQuery({
   },
 });
 
-// ── Internal Mutations (for actions) ──
+// Internal Mutations (for actions)
 
 export const create = internalMutation({
   args: {
@@ -182,7 +209,7 @@ export const updateReview = internalMutation({
   },
 });
 
-// ── Public Mutations (for review dashboard) ──
+// Public Mutations (for review dashboard)
 
 export const approve = mutation({
   args: {
