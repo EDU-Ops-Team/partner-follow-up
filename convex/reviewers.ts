@@ -18,11 +18,13 @@ async function upsertReviewer(
     email,
     name,
     avatarUrl,
+    role,
   }: {
     googleId?: string;
     email: string;
     name: string;
     avatarUrl?: string;
+    role?: "admin" | "reviewer";
   }
 ) {
   let existing = null;
@@ -47,6 +49,7 @@ async function upsertReviewer(
       email,
       name,
       avatarUrl,
+      role: role ?? existing.role,
       lastLoginAt: Date.now(),
     });
     return existing._id;
@@ -57,7 +60,7 @@ async function upsertReviewer(
     email,
     name,
     avatarUrl,
-    role: "reviewer",
+    role: role ?? "reviewer",
     lastLoginAt: Date.now(),
     createdAt: Date.now(),
   });
@@ -106,10 +109,11 @@ export const syncFromOAuth = mutation({
     email: v.string(),
     name: v.string(),
     avatarUrl: v.optional(v.string()),
+    role: v.optional(v.union(v.literal("admin"), v.literal("reviewer"))),
   },
-  handler: async (ctx, { apiKey, googleId, email, name, avatarUrl }) => {
+  handler: async (ctx, { apiKey, googleId, email, name, avatarUrl, role }) => {
     requireApiKey(apiKey);
-    return upsertReviewer(ctx, { googleId, email, name, avatarUrl });
+    return upsertReviewer(ctx, { googleId, email, name, avatarUrl, role });
   },
 });
 
@@ -119,9 +123,10 @@ export const upsertFromOAuth = internalMutation({
     email: v.string(),
     name: v.string(),
     avatarUrl: v.optional(v.string()),
+    role: v.optional(v.union(v.literal("admin"), v.literal("reviewer"))),
   },
-  handler: async (ctx, { googleId, email, name, avatarUrl }) => {
-    return upsertReviewer(ctx, { googleId, email, name, avatarUrl });
+  handler: async (ctx, { googleId, email, name, avatarUrl, role }) => {
+    return upsertReviewer(ctx, { googleId, email, name, avatarUrl, role });
   },
 });
 
@@ -132,9 +137,10 @@ export const ensureFromSession = mutation({
     email: v.string(),
     name: v.string(),
     avatarUrl: v.optional(v.string()),
+    role: v.optional(v.union(v.literal("admin"), v.literal("reviewer"))),
   },
-  handler: async (ctx, { apiKey, googleId, email, name, avatarUrl }) => {
+  handler: async (ctx, { apiKey, googleId, email, name, avatarUrl, role }) => {
     requireApiKey(apiKey);
-    return upsertReviewer(ctx, { googleId, email, name, avatarUrl });
+    return upsertReviewer(ctx, { googleId, email, name, avatarUrl, role });
   },
 });

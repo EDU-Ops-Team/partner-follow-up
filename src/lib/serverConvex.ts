@@ -32,5 +32,6 @@ export async function requireReviewer() {
     email,
     name: typeof user?.name === "string" ? user.name : email,
     avatarUrl: typeof user?.image === "string" ? user.image : undefined,
+    role: user?.role === "admin" ? "admin" : "reviewer",
   };
 }
