@@ -35,8 +35,8 @@ function parseInspectionRow(headers: string[], row: string[]): InspectionRow | n
   const reportReceivedStr = get(["report received", "received", "report status"]);
   return {
     address,
-    inspectionDate: get(["inspection date", "building inspection date", "bi date"]),
-    inspectionTime: get(["inspection time", "building inspection time", "bi time"]),
+    inspectionDate: get(["inspection date", "date of inspection", "building inspection date", "bi date"]),
+    inspectionTime: get(["inspection time", "time of inspection", "building inspection time", "bi time"]),
     reportDueDate: get(["report due", "due date"]),
     reportReceived: reportReceivedStr
       ? ["yes", "true", "received", "complete", "done"].includes(reportReceivedStr.toLowerCase())
