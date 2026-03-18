@@ -1,26 +1,42 @@
 import { NextRequest, NextResponse } from "next/server";
+import { api } from "convex/_generated/api";
+import { getServerApiKey, getServerConvex, requireReviewer } from "@/lib/serverConvex";
+
+type TriggerType = "scheduling" | "completion" | "tracking";
+
+function isTriggerType(value: string): value is TriggerType {
+  return value === "scheduling" || value === "completion" || value === "tracking";
+}
 
 export async function POST(request: NextRequest) {
-  const apiKey = request.headers.get("x-api-key");
-  if (apiKey !== process.env.ADMIN_API_KEY) {
+  const reviewer = await requireReviewer();
+  if (!reviewer) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  if (reviewer.role !== "admin") {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const body = await request.json();
   const { type } = body as { type?: string };
 
-  if (!type || !["email", "scheduling", "completion"].includes(type)) {
+  if (!type || !isTriggerType(type)) {
     return NextResponse.json(
-      { error: "type must be one of: email, scheduling, completion" },
+      { error: "type must be one of: scheduling, completion, tracking" },
       { status: 400 }
     );
   }
 
-  // With Convex, cron actions run server-side in Convex infrastructure.
-  // Manual triggers can be done via Convex dashboard or by scheduling
-  // an immediate run. For now, return guidance.
+  const triggerCheck = (api as Record<string, any>).admin.triggerCheck;
+
+  const result = await getServerConvex().action(triggerCheck, {
+    apiKey: getServerApiKey(),
+    type,
+  });
+
   return NextResponse.json({
-    message: `To manually trigger '${type}', use the Convex dashboard to run the corresponding action, or call the Convex function directly via the SDK.`,
-    action: `internal.check${type.charAt(0).toUpperCase() + type.slice(1)}.run`,
+    ok: true,
+    type,
+    result,
   });
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useSession } from "next-auth/react";
 import { useQuery } from "convex/react";
 import { api } from "convex/_generated/api";
 import type { Doc, Id } from "convex/_generated/dataModel";
@@ -541,6 +542,101 @@ function InboundFeed() {
   );
 }
 
+function AdminTrackingControls() {
+  const { data: session } = useSession();
+  const role = (session?.user as { role?: "admin" | "reviewer" } | undefined)?.role;
+  const isAdmin = role === "admin";
+  const [running, setRunning] = useState<"scheduling" | "completion" | "tracking" | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  if (!isAdmin) {
+    return null;
+  }
+
+  async function trigger(type: "scheduling" | "completion" | "tracking") {
+    setRunning(type);
+    setMessage(null);
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/trigger-check", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ type }),
+      });
+
+      const payload = (await res.json()) as {
+        error?: string;
+        result?: {
+          processed?: number;
+          success?: boolean;
+          errors?: string[];
+          scheduling?: { processed?: number; errors?: string[] };
+          completion?: { processed?: number; errors?: string[] };
+        };
+      };
+
+      if (!res.ok) {
+        throw new Error(payload.error ?? `Request failed (${res.status})`);
+      }
+
+      if (type === "tracking" && payload.result?.scheduling && payload.result?.completion) {
+        setMessage(
+          `Tracking refresh ran. Scheduling processed ${payload.result.scheduling.processed ?? 0}; completion processed ${payload.result.completion.processed ?? 0}.`
+        );
+      } else {
+        setMessage(
+          `${type.charAt(0).toUpperCase() + type.slice(1)} check ran. Processed ${payload.result?.processed ?? 0} site(s).`
+        );
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to trigger check");
+    } finally {
+      setRunning(null);
+    }
+  }
+
+  return (
+    <div className="mb-6 rounded-lg border border-blue-100 bg-blue-50 p-4">
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div>
+          <h2 className="text-sm font-semibold text-blue-900">Admin Tracking Controls</h2>
+          <p className="text-sm text-blue-700">
+            Run the site tracking refresh on demand instead of waiting for the next cron window.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={() => trigger("scheduling")}
+            disabled={running !== null}
+            className="rounded-md bg-white px-3 py-2 text-sm font-medium text-blue-700 ring-1 ring-blue-200 transition-colors hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {running === "scheduling" ? "Running..." : "Run Scheduling"}
+          </button>
+          <button
+            onClick={() => trigger("completion")}
+            disabled={running !== null}
+            className="rounded-md bg-white px-3 py-2 text-sm font-medium text-blue-700 ring-1 ring-blue-200 transition-colors hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {running === "completion" ? "Running..." : "Run Completion"}
+          </button>
+          <button
+            onClick={() => trigger("tracking")}
+            disabled={running !== null}
+            className="rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {running === "tracking" ? "Running..." : "Run Both"}
+          </button>
+        </div>
+      </div>
+      {message && <p className="mt-3 text-sm text-green-700">{message}</p>}
+      {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
+    </div>
+  );
+}
+
 // ── Main Dashboard ──
 
 export default function Dashboard() {
@@ -552,6 +648,8 @@ export default function Dashboard() {
         <h1 className="text-xl font-bold">Sites</h1>
         <p className="text-sm text-gray-500 mt-1">Click a site to see linked messages and activity</p>
       </div>
+
+      <AdminTrackingControls />
 
       <SitesView />
 
