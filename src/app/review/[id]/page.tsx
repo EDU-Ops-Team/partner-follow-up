@@ -4,6 +4,11 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import type { Doc, Id } from "convex/_generated/dataModel";
+import {
+  REVIEW_FEEDBACK_REASONS,
+  getReviewFeedbackReasonLabel,
+  type ReviewFeedbackReason,
+} from "../../../../shared/reviewFeedback";
 
 type Draft = Doc<"draftEmails">;
 type Classification = Doc<"emailClassifications"> | null;
@@ -62,6 +67,8 @@ export default function ReviewDraft() {
   const [editedCc, setEditedCc] = useState("");
   const [editedSubject, setEditedSubject] = useState("");
   const [editedBody, setEditedBody] = useState("");
+  const [feedbackReasons, setFeedbackReasons] = useState<ReviewFeedbackReason[]>([]);
+  const [feedbackNote, setFeedbackNote] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -129,6 +136,14 @@ export default function ReviewDraft() {
     setEditedSubject(currentDraft.originalSubject);
     setEditedBody(htmlToText(currentDraft.originalBody));
     setEditMode(true);
+  }
+
+  function toggleFeedbackReason(reason: ReviewFeedbackReason) {
+    setFeedbackReasons((current) =>
+      current.includes(reason)
+        ? current.filter((item) => item !== reason)
+        : [...current, reason]
+    );
   }
 
   async function postAction(path: string, body?: object) {
@@ -261,6 +276,41 @@ export default function ReviewDraft() {
                 {error}
               </div>
             )}
+            <div className="mb-4 rounded-lg border border-gray-200 bg-white p-4">
+              <h3 className="text-xs font-medium text-gray-500 uppercase mb-3">Reviewer Feedback</h3>
+              <p className="text-sm text-gray-600 mb-3">
+                Capture why you changed or rejected the draft. Reject requires at least one reason.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {REVIEW_FEEDBACK_REASONS.map((reason) => {
+                  const selected = feedbackReasons.includes(reason);
+                  return (
+                    <button
+                      key={reason}
+                      type="button"
+                      onClick={() => toggleFeedbackReason(reason)}
+                      className={`px-3 py-1.5 rounded-md text-xs font-medium border transition-colors ${
+                        selected
+                          ? "bg-amber-100 text-amber-900 border-amber-300"
+                          : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
+                      }`}
+                    >
+                      {getReviewFeedbackReasonLabel(reason)}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="mt-3">
+                <label className="block text-xs text-gray-500 mb-1">Optional note</label>
+                <textarea
+                  value={feedbackNote}
+                  onChange={(e) => setFeedbackNote(e.target.value)}
+                  rows={3}
+                  placeholder="Add context when the reason tags are not enough."
+                  className="w-full border border-gray-200 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+            </div>
             <div className="flex items-center gap-3">
               {editMode ? (
                 <>
@@ -276,6 +326,8 @@ export default function ReviewDraft() {
                           cc: editedCc || undefined,
                           subject: editedSubject,
                           body: editedBody,
+                          feedbackReasons,
+                          feedbackNote: feedbackNote.trim() || undefined,
                         });
                         router.push("/review");
                       } catch (err) {
@@ -303,7 +355,10 @@ export default function ReviewDraft() {
                       setIsSubmitting(true);
                       setError(null);
                       try {
-                        await postAction(`/api/review/drafts/${encodeURIComponent(String(draftId))}/approve`, reviewerPayload());
+                        await postAction(`/api/review/drafts/${encodeURIComponent(String(draftId))}/approve`, {
+                          ...reviewerPayload(),
+                          feedbackNote: feedbackNote.trim() || undefined,
+                        });
                         router.push("/review");
                       } catch (err) {
                         setError(err instanceof Error ? err.message : "Failed to approve");
@@ -327,7 +382,14 @@ export default function ReviewDraft() {
                       setIsSubmitting(true);
                       setError(null);
                       try {
-                        await postAction(`/api/review/drafts/${encodeURIComponent(String(draftId))}/reject`, reviewerPayload());
+                        if (feedbackReasons.length === 0) {
+                          throw new Error("Select at least one reason before rejecting");
+                        }
+                        await postAction(`/api/review/drafts/${encodeURIComponent(String(draftId))}/reject`, {
+                          ...reviewerPayload(),
+                          feedbackReasons,
+                          feedbackNote: feedbackNote.trim() || undefined,
+                        });
                         router.push("/review");
                       } catch (err) {
                         setError(err instanceof Error ? err.message : "Failed to reject");

@@ -10,6 +10,7 @@ export async function POST(
   const body = (await request.json().catch(() => ({}))) as {
     reviewerGoogleId?: string;
     reviewerEmail?: string;
+    feedbackNote?: string;
   };
 
   if (!body.reviewerGoogleId && !body.reviewerEmail) {
@@ -22,6 +23,7 @@ export async function POST(
     apiKey: getServerApiKey(),
     reviewerGoogleId: body.reviewerGoogleId,
     reviewerEmail: body.reviewerEmail,
+    feedbackNote: body.feedbackNote,
   });
 
   return NextResponse.json({ ok: true });

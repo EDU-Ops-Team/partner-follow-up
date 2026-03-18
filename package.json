@@ -4,13 +4,15 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "npm run prompts:sync && next build",
     "start": "next start",
     "lint": "next lint",
     "test": "vitest",
     "test:run": "vitest run",
-    "convex:dev": "convex dev",
-    "convex:deploy": "convex deploy"
+    "prompts:sync": "node scripts/sync-prompts.mjs",
+    "convex:dev": "npm run prompts:sync && convex dev",
+    "convex:deploy": "npm run prompts:sync && convex deploy",
+    "deploy:vercel": "npm run prompts:sync && npx convex deploy --cmd-url-env-var-name NEXT_PUBLIC_CONVEX_URL --cmd \"next build\""
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",

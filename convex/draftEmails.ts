@@ -3,6 +3,7 @@ import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { aggregateLearningInsights } from "./lib/learningInsights";
 import { analyzeReviewDiff, plainTextToHtml } from "./lib/reviewDiff";
+import { REVIEW_FEEDBACK_REASONS } from "../shared/reviewFeedback";
 
 function requireApiKey(apiKey: string): void {
   const expected = process.env.REVIEW_API_KEY ?? process.env.ADMIN_API_KEY;
@@ -128,6 +129,7 @@ export const getInsights = query({
         editsMade: draft.editsMade,
         editDistance: draft.editDistance,
         editCategories: draft.editCategories,
+        feedbackReasons: draft.feedbackReasons,
       }))
     );
   },
@@ -207,6 +209,8 @@ export const getReviewedExamples = query({
         sentBody: draft.sentBody ?? null,
         editDistance: draft.editDistance ?? null,
         editCategories: draft.editCategories ?? [],
+        feedbackReasons: draft.feedbackReasons ?? [],
+        feedbackNote: draft.feedbackNote ?? null,
         reviewerName: reviewer?.name ?? reviewer?.email ?? null,
       };
     });
@@ -280,6 +284,8 @@ export const updateReview = internalMutation({
     editsMade: v.optional(v.boolean()),
     editDistance: v.optional(v.float64()),
     editCategories: v.optional(v.array(v.string())),
+    feedbackReasons: v.optional(v.array(v.union(...REVIEW_FEEDBACK_REASONS.map((reason) => v.literal(reason))))),
+    feedbackNote: v.optional(v.string()),
   },
   handler: async (ctx, { id, ...updates }) => {
     await ctx.db.patch(id, {
@@ -297,8 +303,9 @@ export const approve = mutation({
     apiKey: v.string(),
     reviewerGoogleId: v.optional(v.string()),
     reviewerEmail: v.optional(v.string()),
+    feedbackNote: v.optional(v.string()),
   },
-  handler: async (ctx, { id, apiKey, reviewerGoogleId, reviewerEmail }) => {
+  handler: async (ctx, { id, apiKey, reviewerGoogleId, reviewerEmail, feedbackNote }) => {
     requireApiKey(apiKey);
     const draft = await ctx.db.get(id);
     if (!draft || draft.status !== "pending") {
@@ -319,6 +326,8 @@ export const approve = mutation({
       editsMade: false,
       editDistance: 0,
       editCategories: [],
+      feedbackReasons: [],
+      feedbackNote: feedbackNote?.trim() || undefined,
     });
 
     await ctx.scheduler.runAfter(0, internal.sendDraftEmail.sendApproved, { id });
@@ -335,8 +344,10 @@ export const editAndSend = mutation({
     cc: v.optional(v.string()),
     subject: v.string(),
     body: v.string(),
+    feedbackReasons: v.optional(v.array(v.union(...REVIEW_FEEDBACK_REASONS.map((reason) => v.literal(reason))))),
+    feedbackNote: v.optional(v.string()),
   },
-  handler: async (ctx, { id, apiKey, reviewerGoogleId, reviewerEmail, to, cc, subject, body }) => {
+  handler: async (ctx, { id, apiKey, reviewerGoogleId, reviewerEmail, to, cc, subject, body, feedbackReasons, feedbackNote }) => {
     requireApiKey(apiKey);
     const draft = await ctx.db.get(id);
     if (!draft || draft.status !== "pending") {
@@ -368,6 +379,8 @@ export const editAndSend = mutation({
       editsMade: diff.editsMade,
       editDistance: diff.editDistance,
       editCategories: diff.editCategories,
+      feedbackReasons: feedbackReasons ?? [],
+      feedbackNote: feedbackNote?.trim() || undefined,
     });
 
     await ctx.scheduler.runAfter(0, internal.sendDraftEmail.sendApproved, { id });
@@ -380,12 +393,17 @@ export const reject = mutation({
     apiKey: v.string(),
     reviewerGoogleId: v.optional(v.string()),
     reviewerEmail: v.optional(v.string()),
+    feedbackReasons: v.array(v.union(...REVIEW_FEEDBACK_REASONS.map((reason) => v.literal(reason)))),
+    feedbackNote: v.optional(v.string()),
   },
-  handler: async (ctx, { id, apiKey, reviewerGoogleId, reviewerEmail }) => {
+  handler: async (ctx, { id, apiKey, reviewerGoogleId, reviewerEmail, feedbackReasons, feedbackNote }) => {
     requireApiKey(apiKey);
     const draft = await ctx.db.get(id);
     if (!draft || draft.status !== "pending") {
       throw new Error("Draft not found or not pending");
+    }
+    if (feedbackReasons.length === 0) {
+      throw new Error("At least one feedback reason is required");
     }
 
     const reviewer = await getReviewerByIdentity(ctx, { reviewerGoogleId, reviewerEmail });
@@ -395,6 +413,8 @@ export const reject = mutation({
       status: "rejected",
       reviewedBy: reviewer._id,
       reviewedAt: Date.now(),
+      feedbackReasons,
+      feedbackNote: feedbackNote?.trim() || undefined,
     });
   },
 });

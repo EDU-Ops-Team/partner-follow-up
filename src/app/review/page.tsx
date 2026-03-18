@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import type { Doc } from "convex/_generated/dataModel";
+import { getReviewFeedbackReasonLabel } from "../../../shared/reviewFeedback";
 
 type DraftEmail = Doc<"draftEmails">;
 
@@ -17,6 +18,7 @@ type InsightTypeSummary = {
   passRate: number;
   averageEditDistance: number;
   commonEditCategories: Array<{ category: string; count: number }>;
+  commonFeedbackReasons: Array<{ reason: string; count: number }>;
   readyForGate: boolean;
 };
 
@@ -41,6 +43,8 @@ type ReviewedExample = {
   sentBody: string | null;
   editDistance: number | null;
   editCategories: string[];
+  feedbackReasons: string[];
+  feedbackNote: string | null;
   reviewerName: string | null;
 };
 
@@ -258,6 +262,7 @@ export default function ReviewQueue() {
                     <th className="px-4 py-3 text-left font-medium">Rejected</th>
                     <th className="px-4 py-3 text-left font-medium">Avg Distance</th>
                     <th className="px-4 py-3 text-left font-medium">Top Edit Patterns</th>
+                    <th className="px-4 py-3 text-left font-medium">Top Review Reasons</th>
                     <th className="px-4 py-3 text-left font-medium">Gate</th>
                     <th className="px-4 py-3 text-left font-medium">Examples</th>
                   </tr>
@@ -284,6 +289,22 @@ export default function ReviewQueue() {
                               <div key={entry.category} className="text-xs">
                                 <span className="font-medium text-gray-800">{entry.category}</span>
                                 <span className="text-gray-400"> × {entry.count}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-gray-700">
+                        {item.commonFeedbackReasons.length === 0 ? (
+                          <span className="text-gray-400">No structured reasons yet</span>
+                        ) : (
+                          <div className="space-y-1">
+                            {item.commonFeedbackReasons.map((entry) => (
+                              <div key={entry.reason} className="text-xs">
+                                <span className="font-medium text-gray-800">
+                                  {getReviewFeedbackReasonLabel(entry.reason as Parameters<typeof getReviewFeedbackReasonLabel>[0])}
+                                </span>
+                                <span className="text-gray-400"> x {entry.count}</span>
                               </div>
                             ))}
                           </div>
@@ -413,6 +434,25 @@ export default function ReviewQueue() {
                         ))
                       )}
                     </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {example.feedbackReasons.length === 0 ? (
+                        <span className="text-xs text-gray-400">No structured review reasons recorded</span>
+                      ) : (
+                        example.feedbackReasons.map((reason) => (
+                          <span
+                            key={reason}
+                            className="px-2 py-1 rounded bg-amber-50 text-amber-800 text-xs font-medium"
+                          >
+                            {getReviewFeedbackReasonLabel(reason as Parameters<typeof getReviewFeedbackReasonLabel>[0])}
+                          </span>
+                        ))
+                      )}
+                    </div>
+                    {example.feedbackNote && (
+                      <div className="mt-3 rounded border border-amber-100 bg-amber-50 p-3 text-sm text-amber-900 whitespace-pre-wrap">
+                        {example.feedbackNote}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>

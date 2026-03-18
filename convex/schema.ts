@@ -243,6 +243,8 @@ export default defineSchema({
     editsMade: v.optional(v.boolean()),
     editDistance: v.optional(v.float64()),
     editCategories: v.optional(v.array(v.string())),
+    feedbackReasons: v.optional(v.array(v.string())),
+    feedbackNote: v.optional(v.string()),
     siteId: v.optional(v.id("sites")),
     vendorId: v.optional(v.id("vendors")),
     tier: v.number(),

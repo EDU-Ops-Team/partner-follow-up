@@ -4,6 +4,7 @@ export interface LearningInsightRecord {
   editsMade?: boolean;
   editDistance?: number;
   editCategories?: string[];
+  feedbackReasons?: string[];
 }
 
 export interface LearningInsightTypeSummary {
@@ -17,6 +18,7 @@ export interface LearningInsightTypeSummary {
   passRate: number;
   averageEditDistance: number;
   commonEditCategories: Array<{ category: string; count: number }>;
+  commonFeedbackReasons: Array<{ reason: string; count: number }>;
   readyForGate: boolean;
 }
 
@@ -48,6 +50,9 @@ export function aggregateLearningInsights(
   records: LearningInsightRecord[]
 ): LearningInsightsSummary {
   const buckets = new Map<string, LearningInsightTypeSummary>();
+  const distanceTotals = new Map<string, { total: number; count: number }>();
+  const editCategoryCounts = new Map<string, Map<string, number>>();
+  const feedbackReasonCounts = new Map<string, Map<string, number>>();
 
   for (const record of records) {
     const key = record.classificationType || "unknown";
@@ -62,6 +67,7 @@ export function aggregateLearningInsights(
       passRate: 0,
       averageEditDistance: 0,
       commonEditCategories: [],
+      commonFeedbackReasons: [],
       readyForGate: false,
     };
 
@@ -87,23 +93,38 @@ export function aggregateLearningInsights(
 
     const categories = record.editCategories ?? [];
     if (categories.length > 0) {
-      const counts = new Map(bucket.commonEditCategories.map((entry) => [entry.category, entry.count]));
+      const counts = editCategoryCounts.get(key) ?? new Map<string, number>();
       for (const category of categories) {
         counts.set(category, (counts.get(category) ?? 0) + 1);
       }
+      editCategoryCounts.set(key, counts);
       bucket.commonEditCategories = Array.from(counts.entries())
         .map(([category, count]) => ({ category, count }))
         .sort((a, b) => b.count - a.count || a.category.localeCompare(b.category))
         .slice(0, 3);
     }
 
-    const reviewedForDistance = records.filter(
-      (item) => item.classificationType === key && isReviewed(item.status) && item.status !== "rejected"
-    );
-    const totalDistance = reviewedForDistance.reduce((sum, item) => sum + (item.editDistance ?? 0), 0);
-    bucket.averageEditDistance = reviewedForDistance.length > 0
-      ? round(totalDistance / reviewedForDistance.length)
-      : 0;
+    const feedbacks = record.feedbackReasons ?? [];
+    if (feedbacks.length > 0) {
+      const counts = feedbackReasonCounts.get(key) ?? new Map<string, number>();
+      for (const reason of feedbacks) {
+        counts.set(reason, (counts.get(reason) ?? 0) + 1);
+      }
+      feedbackReasonCounts.set(key, counts);
+      bucket.commonFeedbackReasons = Array.from(counts.entries())
+        .map(([reason, count]) => ({ reason, count }))
+        .sort((a, b) => b.count - a.count || a.reason.localeCompare(b.reason))
+        .slice(0, 3);
+    }
+
+    if (isReviewed(record.status) && record.status !== "rejected") {
+      const totals = distanceTotals.get(key) ?? { total: 0, count: 0 };
+      totals.total += record.editDistance ?? 0;
+      totals.count += 1;
+      distanceTotals.set(key, totals);
+      bucket.averageEditDistance = round(totals.total / totals.count);
+    }
+
     bucket.passRate = bucket.reviewedCount > 0
       ? round(bucket.passCount / bucket.reviewedCount)
       : 0;
