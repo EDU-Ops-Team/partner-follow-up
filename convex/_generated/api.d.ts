@@ -17,6 +17,7 @@ import type * as classificationGates from "../classificationGates.js";
 import type * as classifyInbound from "../classifyInbound.js";
 import type * as crons from "../crons.js";
 import type * as data_decisionTrees_index from "../data/decisionTrees/index.js";
+import type * as data_generated_promptLibrary from "../data/generated/promptLibrary.js";
 import type * as data_templates_index from "../data/templates/index.js";
 import type * as data_vendorsSeed from "../data/vendorsSeed.js";
 import type * as decisionLogs from "../decisionLogs.js";
@@ -73,6 +74,7 @@ declare const fullApi: ApiFromModules<{
   classifyInbound: typeof classifyInbound;
   crons: typeof crons;
   "data/decisionTrees/index": typeof data_decisionTrees_index;
+  "data/generated/promptLibrary": typeof data_generated_promptLibrary;
   "data/templates/index": typeof data_templates_index;
   "data/vendorsSeed": typeof data_vendorsSeed;
   decisionLogs: typeof decisionLogs;
