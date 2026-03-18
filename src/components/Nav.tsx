@@ -8,6 +8,7 @@ const NAV_ITEMS = [
   { href: "/", label: "Dashboard" },
   { href: "/review", label: "Review Queue" },
   { href: "/partners", label: "Partners" },
+  { href: "/docs", label: "Docs" },
 ];
 
 export function Nav() {
