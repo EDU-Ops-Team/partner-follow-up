@@ -5,6 +5,7 @@ import { internal } from "./_generated/api";
 import {
   REPORT_REMINDER_INTERVAL_DAYS,
   INSPECTION_CONTACT_EMAIL,
+  INSPECTION_CONTACT_NAME,
 } from "./lib/constants";
 import { fetchAirtableData } from "./services/airtableScraper";
 import { fetchInspectionData } from "./services/googleSheets";
@@ -21,11 +22,19 @@ import {
   siteResolvedChat,
 } from "./lib/templates";
 import { logger } from "./lib/logger";
+import { deriveTrackingState, isLidarComplete } from "../shared/siteTracking";
 
 function getEnv(name: string): string {
   const v = process.env[name];
   if (!v) throw new Error(`Missing env var: ${name}`);
   return v;
+}
+
+function parseScheduledDatetime(dateValue?: string, timeValue?: string): number | undefined {
+  if (!dateValue) return undefined;
+  const combined = timeValue ? `${dateValue} ${timeValue}` : dateValue;
+  const parsed = new Date(combined).getTime();
+  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 export const run = internalAction({
@@ -58,133 +67,229 @@ export const run = internalAction({
 
       for (const site of dueSites) {
         try {
+          let currentSite = { ...site };
+          const pendingUpdates: Record<string, unknown> = {};
+          const applyUpdates = (updates: Record<string, unknown>) => {
+            Object.assign(currentSite, updates);
+            Object.assign(pendingUpdates, updates);
+          };
+
           const latestTrigger = site.triggerEmails?.[site.triggerEmails.length - 1];
-          const threadOpts: ThreadingOptions | undefined = (latestTrigger?.threadId ?? site.triggerThreadId) ? {
-            threadId: latestTrigger?.threadId ?? site.triggerThreadId,
-            inReplyTo: latestTrigger?.messageId ?? site.triggerMessageId,
-            references: latestTrigger?.messageId ?? site.triggerMessageId,
-          } : undefined;
-
-          let lidarComplete = site.lidarJobStatus === "complete";
-          let reportReceived = site.reportReceived;
-          let reportLink = site.reportLink;
-          let anyNotified = false;
-
-          // Check Airtable for LiDAR — always refresh status and data-as-of
-          {
-            const match = matchAddress(site.siteAddress, airtableAddresses);
-            if (match.matched && match.matchedAddress) {
-              const row = airtableRows.find((r) => r.address === match.matchedAddress);
-              if (row) {
-                const updates: Record<string, unknown> = {};
-                if (row.jobStatus) updates.lidarJobStatus = row.jobStatus;
-                if (row.dataAsOf) updates.lidarDataAsOf = row.dataAsOf;
-                if (row.modelUrl) updates.lidarModelUrl = row.modelUrl;
-                if (match.matchedAddress) updates.fullAddress = match.matchedAddress;
-                if (Object.keys(updates).length > 0) {
-                  await ctx.runMutation(internal.sites.update, { id: site._id, updates });
-                }
-                if (!lidarComplete && row.jobStatus && ["complete", "completed", "done", "finished"].includes(row.jobStatus.toLowerCase())) {
-                  lidarComplete = true;
-                }
+          const threadOpts: ThreadingOptions | undefined = (latestTrigger?.threadId ?? site.triggerThreadId)
+            ? {
+                threadId: latestTrigger?.threadId ?? site.triggerThreadId,
+                inReplyTo: latestTrigger?.messageId ?? site.triggerMessageId,
+                references: latestTrigger?.messageId ?? site.triggerMessageId,
               }
-            }
-          }
+            : undefined;
 
-          // Check Sheets for report
-          if (!reportReceived) {
-            const match = matchAddress(site.siteAddress, inspectionAddresses);
-            if (match.matched && match.matchedAddress) {
-              const row = inspectionRows.find((r) => r.address === match.matchedAddress);
-              if (row?.reportReceived) {
-                reportReceived = true;
-                reportLink = row.reportLink ?? reportLink;
-                await ctx.runMutation(internal.sites.update, { id: site._id, updates: { reportReceived: true, reportLink: reportLink ?? undefined } });
+          const lidarMatch = matchAddress(currentSite.siteAddress, airtableAddresses);
+          if (lidarMatch.matched && lidarMatch.matchedAddress) {
+            const row = airtableRows.find((r) => r.address === lidarMatch.matchedAddress);
+            if (row) {
+              const updates: Record<string, unknown> = {
+                fullAddress: lidarMatch.matchedAddress,
+              };
+              if (row.jobStatus) updates.lidarJobStatus = row.jobStatus;
+              if (row.dataAsOf) updates.lidarDataAsOf = row.dataAsOf;
+              if (row.modelUrl) updates.lidarModelUrl = row.modelUrl;
+
+              const scheduledDatetime = parseScheduledDatetime(row.scheduledDate, row.scheduledTime);
+              if (row.scheduledDate) {
+                updates.lidarScheduled = true;
+                if (scheduledDatetime !== undefined) {
+                  updates.lidarScheduledDatetime = scheduledDatetime;
+                }
+                if (!row.jobStatus) updates.lidarJobStatus = "scheduled";
               }
-            }
-          }
 
-          // LiDAR complete notification
-          if (lidarComplete && !site.lidarCompleteNotified) {
-            await ctx.runMutation(internal.sites.update, { id: site._id, updates: { lidarCompleteNotified: true } });
-            await postToChat(chatWebhook, lidarCompleteChat({ ...site, lidarJobStatus: "complete" }));
-            await ctx.runMutation(internal.auditLogs.create, {
-              siteId: site._id, action: "lidar_complete_notification", details: { message: "LiDAR scan complete" }, level: "info",
-            });
-            anyNotified = true;
-          }
-
-          // Report received notification
-          if (reportReceived && !site.reportLinkNotified) {
-            await ctx.runMutation(internal.sites.update, { id: site._id, updates: { reportLinkNotified: true } });
-            await postToChat(chatWebhook, reportReceivedChat(site, reportLink ?? undefined));
-            await ctx.runMutation(internal.auditLogs.create, {
-              siteId: site._id, action: "report_received_notification", details: { reportLink }, level: "info",
-            });
-            anyNotified = true;
-          }
-
-          // Fully resolved
-          if (lidarComplete && reportReceived && !site.resolved) {
-            const resolved = await ctx.runMutation(internal.sites.update, {
-              id: site._id, updates: { resolved: true, resolvedAt: now, phase: "resolved" },
-            });
-            if (resolved) {
-              await postToChat(chatWebhook, siteResolvedChat(resolved));
+              applyUpdates(updates);
               await ctx.runMutation(internal.auditLogs.create, {
-                siteId: site._id, action: "site_resolved", details: { message: "All items complete" }, level: "info",
+                siteId: site._id,
+                action: "lidar_completion_check",
+                details: {
+                  found: true,
+                  scheduledDate: row.scheduledDate,
+                  scheduledTime: row.scheduledTime,
+                  jobStatus: row.jobStatus,
+                  confidence: lidarMatch.confidence,
+                },
+                level: "info",
               });
             }
+          }
+
+          const inspectionMatch = matchAddress(currentSite.siteAddress, inspectionAddresses);
+          if (inspectionMatch.matched && inspectionMatch.matchedAddress) {
+            const row = inspectionRows.find((r) => r.address === inspectionMatch.matchedAddress);
+            if (row) {
+              const updates: Record<string, unknown> = {
+                inspectionScheduled: Boolean(row.inspectionDate) || currentSite.inspectionScheduled,
+                inspectionContactEmail: INSPECTION_CONTACT_EMAIL,
+                inspectionContactName: INSPECTION_CONTACT_NAME,
+              };
+              if (row.inspectionDate) updates.inspectionDate = row.inspectionDate;
+              if (row.inspectionTime) updates.inspectionTime = row.inspectionTime;
+              if (row.reportDueDate) updates.reportDueDate = row.reportDueDate;
+              if (row.reportReceived) updates.reportReceived = true;
+              if (row.reportLink) updates.reportLink = row.reportLink;
+
+              applyUpdates(updates);
+              await ctx.runMutation(internal.auditLogs.create, {
+                siteId: site._id,
+                action: "inspection_completion_check",
+                details: {
+                  found: true,
+                  inspectionDate: row.inspectionDate,
+                  inspectionTime: row.inspectionTime,
+                  reportDueDate: row.reportDueDate,
+                  reportReceived: row.reportReceived,
+                  reportLink: row.reportLink,
+                  confidence: inspectionMatch.confidence,
+                },
+                level: "info",
+              });
+            }
+          }
+
+          applyUpdates({ ...deriveTrackingState(currentSite) });
+
+          const lidarComplete = isLidarComplete(currentSite.lidarJobStatus);
+          const reportReceived = Boolean(currentSite.reportReceived);
+
+          if (lidarComplete && !site.lidarCompleteNotified) {
+            applyUpdates({ lidarCompleteNotified: true });
+          }
+
+          if (reportReceived && !site.reportLinkNotified) {
+            applyUpdates({ reportLinkNotified: true });
+          }
+
+          if (lidarComplete && reportReceived && !site.resolved) {
+            applyUpdates({
+              resolved: true,
+              resolvedAt: now,
+              phase: "resolved",
+            });
+            applyUpdates({ ...deriveTrackingState({ ...currentSite, resolved: true }) });
+          }
+
+          if (Object.keys(pendingUpdates).length > 0) {
+            const updated = await ctx.runMutation(internal.sites.update, {
+              id: site._id,
+              updates: pendingUpdates,
+            });
+            if (updated) {
+              currentSite = updated;
+            }
+          }
+
+          let anyNotified = false;
+
+          if (lidarComplete && !site.lidarCompleteNotified) {
+            await postToChat(chatWebhook, lidarCompleteChat(currentSite));
+            await ctx.runMutation(internal.auditLogs.create, {
+              siteId: site._id,
+              action: "lidar_complete_notification",
+              details: {
+                message: "LiDAR scan complete",
+                trackingStatus: currentSite.trackingStatus,
+                trackingScope: currentSite.trackingScope,
+              },
+              level: "info",
+            });
             anyNotified = true;
           }
 
-          // Completion reminders — route to the right person
-          const reportOverdue = site.reportDueDate
-            ? new Date(site.reportDueDate).getTime() < now
+          if (reportReceived && !site.reportLinkNotified) {
+            await postToChat(chatWebhook, reportReceivedChat(currentSite, currentSite.reportLink ?? undefined));
+            await ctx.runMutation(internal.auditLogs.create, {
+              siteId: site._id,
+              action: "report_received_notification",
+              details: {
+                reportLink: currentSite.reportLink,
+                trackingStatus: currentSite.trackingStatus,
+                trackingScope: currentSite.trackingScope,
+              },
+              level: "info",
+            });
+            anyNotified = true;
+          }
+
+          if (lidarComplete && reportReceived && !site.resolved) {
+            await postToChat(chatWebhook, siteResolvedChat(currentSite));
+            await ctx.runMutation(internal.auditLogs.create, {
+              siteId: site._id,
+              action: "site_resolved",
+              details: {
+                message: "All items complete",
+                trackingStatus: currentSite.trackingStatus,
+                trackingScope: currentSite.trackingScope,
+              },
+              level: "info",
+            });
+            anyNotified = true;
+          }
+
+          const reportOverdue = currentSite.reportDueDate
+            ? new Date(currentSite.reportDueDate).getTime() < now
             : false;
           const needsLidarReminder = !lidarComplete && !anyNotified;
           const needsReportReminder = !reportReceived && !anyNotified && reportOverdue;
           let sentReminder = false;
+          const reminderUpdates: Record<string, unknown> = {};
 
-          // LiDAR not complete → remind original responsible party
           if (needsLidarReminder) {
-            const email = lidarCompletionReminderEmail(site);
-            await sendEmail(site.responsiblePartyEmail, email.subject, email.html, undefined, threadOpts);
+            const email = lidarCompletionReminderEmail(currentSite);
+            await sendEmail(currentSite.responsiblePartyEmail, email.subject, email.html, undefined, threadOpts);
             await ctx.runMutation(internal.auditLogs.create, {
-              siteId: site._id, action: "lidar_completion_reminder_sent",
-              details: { to: site.responsiblePartyEmail }, level: "info",
+              siteId: site._id,
+              action: "lidar_completion_reminder_sent",
+              details: {
+                to: currentSite.responsiblePartyEmail,
+                trackingStatus: currentSite.trackingStatus,
+                trackingScope: currentSite.trackingScope,
+              },
+              level: "info",
             });
+            reminderUpdates.lastOutreachDate = now;
             sentReminder = true;
           }
 
-          // Report overdue → remind Steve (inspection contact)
           if (needsReportReminder) {
-            const reportTo = site.inspectionContactEmail ?? INSPECTION_CONTACT_EMAIL;
-            await postToChat(chatWebhook, reportReminderChat(site));
-            const email = inspectionReportReminderEmail(site);
+            const reportTo = currentSite.inspectionContactEmail ?? INSPECTION_CONTACT_EMAIL;
+            await postToChat(chatWebhook, reportReminderChat(currentSite));
+            const email = inspectionReportReminderEmail(currentSite);
             await sendEmail(reportTo, email.subject, email.html, undefined, threadOpts);
-            await ctx.runMutation(internal.sites.update, {
-              id: site._id,
-              updates: {
-                reportReminderCount: site.reportReminderCount + 1,
-                lastOutreachDate: now,
-              },
-            });
+            reminderUpdates.reportReminderCount = site.reportReminderCount + 1;
+            reminderUpdates.lastOutreachDate = now;
             await ctx.runMutation(internal.auditLogs.create, {
-              siteId: site._id, action: "report_reminder_sent",
-              details: { reminderNumber: site.reportReminderCount + 1, to: reportTo }, level: "info",
+              siteId: site._id,
+              action: "report_reminder_sent",
+              details: {
+                reminderNumber: site.reportReminderCount + 1,
+                to: reportTo,
+                trackingStatus: currentSite.trackingStatus,
+                trackingScope: currentSite.trackingScope,
+              },
+              level: "info",
             });
             sentReminder = true;
           }
 
-          // Reschedule next check if anything is still pending
           if (!lidarComplete || !reportReceived) {
+            reminderUpdates.nextCheckDate = addBusinessDays(new Date(now), REPORT_REMINDER_INTERVAL_DAYS).getTime();
+          }
+
+          if (Object.keys(reminderUpdates).length > 0) {
             await ctx.runMutation(internal.sites.update, {
               id: site._id,
-              updates: {
-                nextCheckDate: addBusinessDays(new Date(now), REPORT_REMINDER_INTERVAL_DAYS).getTime(),
-                ...(sentReminder ? { lastOutreachDate: now } : {}),
-              },
+              updates: reminderUpdates,
+            });
+          } else if (sentReminder) {
+            await ctx.runMutation(internal.sites.update, {
+              id: site._id,
+              updates: { lastOutreachDate: now },
             });
           }
 
@@ -205,3 +310,6 @@ export const run = internalAction({
     return result;
   },
 });
+
+
+

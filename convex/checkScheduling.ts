@@ -19,11 +19,19 @@ import {
   schedulingReminderEmail,
 } from "./lib/templates";
 import { logger } from "./lib/logger";
+import { deriveTrackingState } from "../shared/siteTracking";
 
 function getEnv(name: string): string {
   const v = process.env[name];
   if (!v) throw new Error(`Missing env var: ${name}`);
   return v;
+}
+
+function parseScheduledDatetime(dateValue?: string, timeValue?: string): number | undefined {
+  if (!dateValue) return undefined;
+  const combined = timeValue ? `${dateValue} ${timeValue}` : dateValue;
+  const parsed = new Date(combined).getTime();
+  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 export const run = internalAction({
@@ -39,7 +47,6 @@ export const run = internalAction({
         return result;
       }
 
-      // Fetch external data
       const [airtableRows, inspectionRows] = await Promise.all([
         fetchAirtableData(getEnv("AIRTABLE_SHARED_VIEW_URL")).catch((err) => {
           result.errors.push(`Airtable: ${err instanceof Error ? err.message : String(err)}`);
@@ -57,12 +64,15 @@ export const run = internalAction({
 
       for (const site of dueSites) {
         try {
-          let lidarScheduled = site.lidarScheduled;
-          let inspectionScheduled = site.inspectionScheduled;
+          const currentSite = { ...site };
+          const pendingUpdates: Record<string, unknown> = {};
+          const applyUpdates = (updates: Record<string, unknown>) => {
+            Object.assign(currentSite, updates);
+            Object.assign(pendingUpdates, updates);
+          };
 
-          // Check Airtable for LiDAR
-          if (!lidarScheduled) {
-            const match = matchAddress(site.siteAddress, airtableAddresses);
+          if (!currentSite.lidarScheduled) {
+            const match = matchAddress(currentSite.siteAddress, airtableAddresses);
             if (match.matched && match.matchedAddress) {
               const row = airtableRows.find((r) => r.address === match.matchedAddress);
               if (row) {
@@ -73,90 +83,118 @@ export const run = internalAction({
                 if (row.dataAsOf) updates.lidarDataAsOf = row.dataAsOf;
                 if (row.modelUrl) updates.lidarModelUrl = row.modelUrl;
 
+                const scheduledDatetime = parseScheduledDatetime(row.scheduledDate, row.scheduledTime);
                 if (row.scheduledDate) {
-                  lidarScheduled = true;
                   updates.lidarScheduled = true;
-                  updates.lidarScheduledDatetime = new Date(row.scheduledDate).getTime();
+                  if (scheduledDatetime !== undefined) {
+                    updates.lidarScheduledDatetime = scheduledDatetime;
+                  }
                   if (!row.jobStatus) updates.lidarJobStatus = "scheduled";
                 }
 
-                await ctx.runMutation(internal.sites.update, {
-                  id: site._id, updates,
-                });
+                applyUpdates(updates);
                 await ctx.runMutation(internal.auditLogs.create, {
-                  siteId: site._id, action: "lidar_check",
-                  details: { found: true, scheduledDate: row.scheduledDate, jobStatus: row.jobStatus, confidence: match.confidence },
+                  siteId: site._id,
+                  action: "lidar_check",
+                  details: {
+                    found: true,
+                    scheduledDate: row.scheduledDate,
+                    scheduledTime: row.scheduledTime,
+                    jobStatus: row.jobStatus,
+                    confidence: match.confidence,
+                  },
                   level: "info",
                 });
               }
             }
           }
 
-          // Check Sheets for inspection
-          if (!inspectionScheduled) {
-            const match = matchAddress(site.siteAddress, inspectionAddresses);
+          if (!currentSite.inspectionScheduled) {
+            const match = matchAddress(currentSite.siteAddress, inspectionAddresses);
             if (match.matched && match.matchedAddress) {
               const row = inspectionRows.find((r) => r.address === match.matchedAddress);
               if (row?.inspectionDate) {
-                inspectionScheduled = true;
-                await ctx.runMutation(internal.sites.update, {
-                  id: site._id,
-                  updates: {
-                    inspectionScheduled: true,
+                applyUpdates({
+                  inspectionScheduled: true,
+                  inspectionDate: row.inspectionDate,
+                  inspectionTime: row.inspectionTime,
+                  reportDueDate: row.reportDueDate,
+                  inspectionContactEmail: INSPECTION_CONTACT_EMAIL,
+                  inspectionContactName: INSPECTION_CONTACT_NAME,
+                });
+                await ctx.runMutation(internal.auditLogs.create, {
+                  siteId: site._id,
+                  action: "inspection_check",
+                  details: {
+                    found: true,
                     inspectionDate: row.inspectionDate,
                     inspectionTime: row.inspectionTime,
                     reportDueDate: row.reportDueDate,
-                    inspectionContactEmail: INSPECTION_CONTACT_EMAIL,
-                    inspectionContactName: INSPECTION_CONTACT_NAME,
+                    confidence: match.confidence,
                   },
-                });
-                await ctx.runMutation(internal.auditLogs.create, {
-                  siteId: site._id, action: "inspection_check",
-                  details: { found: true, inspectionDate: row.inspectionDate, confidence: match.confidence },
                   level: "info",
                 });
               }
             }
           }
 
-          // Both scheduled → advance to completion phase
-          if (lidarScheduled && inspectionScheduled && !site.bothScheduledNotified) {
-            const updated = await ctx.runMutation(internal.sites.update, {
-              id: site._id,
-              updates: { lidarScheduled: true, inspectionScheduled: true, bothScheduledNotified: true, phase: "completion" },
+          applyUpdates({ ...deriveTrackingState(currentSite) });
+
+          if (currentSite.lidarScheduled && currentSite.inspectionScheduled && !site.bothScheduledNotified) {
+            applyUpdates({
+              lidarScheduled: true,
+              inspectionScheduled: true,
+              bothScheduledNotified: true,
+              phase: "completion",
             });
+
+            const updated = Object.keys(pendingUpdates).length > 0
+              ? await ctx.runMutation(internal.sites.update, {
+                  id: site._id,
+                  updates: pendingUpdates,
+                })
+              : currentSite;
+
             if (updated) {
               await postToChat(chatWebhook, bothScheduledChat(updated));
               await ctx.runMutation(internal.auditLogs.create, {
-                siteId: site._id, action: "both_scheduled_notification",
+                siteId: site._id,
+                action: "both_scheduled_notification",
                 details: { message: "Both LiDAR and Building Inspection scheduled" },
                 level: "info",
               });
             }
-          } else if (!lidarScheduled || !inspectionScheduled) {
-            // Send scheduling reminder
+          } else {
             const daysSinceTrigger = countBusinessDays(new Date(site.triggerDate), new Date(now));
-            await postToChat(chatWebhook, schedulingReminderChat(site, daysSinceTrigger));
-            const email = schedulingReminderEmail(site, daysSinceTrigger);
+            await postToChat(chatWebhook, schedulingReminderChat(currentSite, daysSinceTrigger));
+            const email = schedulingReminderEmail(currentSite, daysSinceTrigger);
             const latestTrigger = site.triggerEmails?.[site.triggerEmails.length - 1];
             const threadOpts: ThreadingOptions | undefined = (latestTrigger?.threadId ?? site.triggerThreadId) ? {
               threadId: latestTrigger?.threadId ?? site.triggerThreadId,
               inReplyTo: latestTrigger?.messageId ?? site.triggerMessageId,
               references: latestTrigger?.messageId ?? site.triggerMessageId,
             } : undefined;
-            await sendEmail(site.responsiblePartyEmail, email.subject, email.html, undefined, threadOpts);
+            await sendEmail(currentSite.responsiblePartyEmail, email.subject, email.html, undefined, threadOpts);
+
+            applyUpdates({
+              schedulingReminderCount: site.schedulingReminderCount + 1,
+              lastOutreachDate: now,
+              nextCheckDate: addBusinessDays(new Date(now), SCHEDULING_CHECK_INTERVAL_DAYS).getTime(),
+            });
 
             await ctx.runMutation(internal.sites.update, {
               id: site._id,
-              updates: {
-                schedulingReminderCount: site.schedulingReminderCount + 1,
-                lastOutreachDate: now,
-                nextCheckDate: addBusinessDays(new Date(now), SCHEDULING_CHECK_INTERVAL_DAYS).getTime(),
-              },
+              updates: pendingUpdates,
             });
             await ctx.runMutation(internal.auditLogs.create, {
-              siteId: site._id, action: "scheduling_reminder_sent",
-              details: { reminderNumber: site.schedulingReminderCount + 1, daysSinceTrigger },
+              siteId: site._id,
+              action: "scheduling_reminder_sent",
+              details: {
+                reminderNumber: site.schedulingReminderCount + 1,
+                daysSinceTrigger,
+                trackingStatus: currentSite.trackingStatus,
+                trackingScope: currentSite.trackingScope,
+              },
               level: "info",
             });
           }
@@ -178,3 +216,5 @@ export const run = internalAction({
     return result;
   },
 });
+
+

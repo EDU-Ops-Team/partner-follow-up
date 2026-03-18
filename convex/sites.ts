@@ -1,9 +1,9 @@
 import { query, mutation, internalQuery, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
-import { similarity, normalizeAddress } from "./lib/addressNormalizer";
+import { similarity } from "./lib/addressNormalizer";
 import { ADDRESS_MATCH_THRESHOLD } from "./lib/constants";
 
-// ── Public Queries (for dashboard) ──
+// Public Queries (for dashboard)
 
 export const list = query({
   handler: async (ctx) => {
@@ -29,7 +29,7 @@ export const getById = query({
   },
 });
 
-// ── Internal Queries (for actions) ──
+// Internal Queries (for actions)
 
 export const getByIdInternal = internalQuery({
   args: { id: v.id("sites") },
@@ -69,7 +69,7 @@ export const getDueSites = internalQuery({
   },
 });
 
-// ── Internal Mutations (for actions) ──
+// Internal Mutations (for actions)
 
 export const create = internalMutation({
   args: {
@@ -93,6 +93,8 @@ export const create = internalMutation({
       reportReceived: false,
       reportLinkNotified: false,
       reportReminderCount: 0,
+      trackingStatus: "scheduling",
+      trackingScope: "none",
       schedulingReminderCount: 0,
       bothScheduledNotified: false,
       resolved: false,
@@ -153,7 +155,7 @@ export const findOrCreateByAddress = internalMutation({
       }
     }
 
-    // 3. No match — create new site
+    // 3. No match, create new site
     const siteId = await ctx.db.insert("sites", {
       siteAddress: args.siteAddress,
       normalizedAddress: args.normalizedAddress,
@@ -169,6 +171,8 @@ export const findOrCreateByAddress = internalMutation({
       reportReceived: false,
       reportLinkNotified: false,
       reportReminderCount: 0,
+      trackingStatus: "scheduling",
+      trackingScope: "none",
       schedulingReminderCount: 0,
       bothScheduledNotified: false,
       resolved: false,
@@ -188,7 +192,7 @@ export const update = internalMutation({
   },
 });
 
-// ── Public Mutations (for admin API) ──
+// Public Mutations (for admin API)
 
 export const adminCreate = mutation({
   args: {
@@ -209,6 +213,8 @@ export const adminCreate = mutation({
       reportReceived: false,
       reportLinkNotified: false,
       reportReminderCount: 0,
+      trackingStatus: "scheduling",
+      trackingScope: "none",
       schedulingReminderCount: 0,
       bothScheduledNotified: false,
       resolved: false,
@@ -255,6 +261,18 @@ export const adminUpdate = mutation({
       reportLink: v.optional(v.string()),
       resolved: v.optional(v.boolean()),
       nextCheckDate: v.optional(v.number()),
+      trackingStatus: v.optional(v.union(
+        v.literal("scheduling"),
+        v.literal("scheduled"),
+        v.literal("complete"),
+        v.literal("resolved")
+      )),
+      trackingScope: v.optional(v.union(
+        v.literal("none"),
+        v.literal("lidar"),
+        v.literal("inspection"),
+        v.literal("both")
+      )),
     }),
   },
   handler: async (ctx, { id, updates }) => {
@@ -275,3 +293,4 @@ export const adminDelete = mutation({
     await ctx.db.delete(id);
   },
 });
+

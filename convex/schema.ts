@@ -57,6 +57,18 @@ export default defineSchema({
     reportReminderCount: v.number(),
 
     // Status tracking
+    trackingStatus: v.optional(v.union(
+      v.literal("scheduling"),
+      v.literal("scheduled"),
+      v.literal("complete"),
+      v.literal("resolved")
+    )),
+    trackingScope: v.optional(v.union(
+      v.literal("none"),
+      v.literal("lidar"),
+      v.literal("inspection"),
+      v.literal("both")
+    )),
     lastOutreachDate: v.optional(v.number()),
     schedulingReminderCount: v.number(),
     bothScheduledNotified: v.boolean(),
@@ -113,7 +125,7 @@ export default defineSchema({
     year: v.number(),
   }).index("by_date", ["date"]),
 
-  // ── Email Agent Tables ──
+  // Email Agent Tables
 
   emailClassifications: defineTable({
     gmailMessageId: v.string(),

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useQuery } from "convex/react";
 import { api } from "convex/_generated/api";
 import type { Doc, Id } from "convex/_generated/dataModel";
+import { deriveTrackingState, formatTrackingStateLabel, isLidarComplete, type TrackingScope, type TrackingStatus } from "../../shared/siteTracking";
 
 // ── Badges ──
 
@@ -14,6 +15,20 @@ function phaseBadge(phase: string) {
     resolved: "bg-green-100 text-green-800",
   };
   return `inline-block px-2 py-1 rounded text-xs font-medium ${colors[phase] ?? "bg-gray-100"}`;
+}
+
+function trackingBadge(status: TrackingStatus, scope: TrackingScope) {
+  const colors: Record<TrackingStatus, string> = {
+    scheduling: "bg-gray-100 text-gray-700",
+    scheduled: "bg-sky-100 text-sky-800",
+    complete: "bg-emerald-100 text-emerald-800",
+    resolved: "bg-green-100 text-green-800",
+  };
+  return (
+    <span className={`inline-block px-2 py-1 rounded text-xs font-medium ${colors[status]}`}>
+      {formatTrackingStateLabel(status, scope)}
+    </span>
+  );
 }
 
 function classificationBadge(type: string) {
@@ -275,8 +290,20 @@ function SiteCard({ site }: { site: {
   triggerDate: number;
   schedulingReminderCount: number;
   reportReminderCount: number;
+  trackingStatus?: TrackingStatus;
+  trackingScope?: TrackingScope;
 } }) {
   const [expanded, setExpanded] = useState(false);
+  const trackingState = site.trackingStatus && site.trackingScope
+    ? { trackingStatus: site.trackingStatus, trackingScope: site.trackingScope }
+    : deriveTrackingState({
+        resolved: site.resolved,
+        lidarScheduled: site.lidarScheduled,
+        inspectionScheduled: site.inspectionScheduled,
+        lidarJobStatus: site.lidarJobStatus,
+        reportReceived: site.reportReceived,
+      });
+  const lidarComplete = isLidarComplete(site.lidarJobStatus);
 
   return (
     <div className="bg-white border border-gray-200 rounded-lg hover:shadow-sm">
@@ -288,6 +315,7 @@ function SiteCard({ site }: { site: {
           <div className="flex items-center gap-3">
             <h2 className="text-lg font-semibold">{site.fullAddress ?? site.siteAddress}</h2>
             <span className={phaseBadge(site.phase)}>{site.phase}</span>
+            {trackingBadge(trackingState.trackingStatus, trackingState.trackingScope)}
             <span className="text-gray-400 text-sm">{expanded ? "\u25B2" : "\u25BC"}</span>
           </div>
           <div className="text-sm text-gray-500">
@@ -300,8 +328,8 @@ function SiteCard({ site }: { site: {
             <div className="space-y-1 text-sm">
               <div className="flex justify-between">
                 <span className="text-gray-500">Status</span>
-                <span className={statusDot(site.lidarScheduled)}>
-                  {site.lidarJobStatus === "complete" ? "Complete" : site.lidarScheduled ? "Scheduled" : "Not scheduled"}
+                <span className={statusDot(site.lidarScheduled || lidarComplete)}>
+                  {lidarComplete ? "Complete" : site.lidarScheduled ? "Scheduled" : "Not scheduled"}
                 </span>
               </div>
               <div className="flex justify-between">
@@ -321,8 +349,8 @@ function SiteCard({ site }: { site: {
             <div className="space-y-1 text-sm">
               <div className="flex justify-between">
                 <span className="text-gray-500">Status</span>
-                <span className={statusDot(site.inspectionScheduled)}>
-                  {site.inspectionScheduled ? "Scheduled" : "Not scheduled"}
+                <span className={statusDot(site.inspectionScheduled || site.reportReceived)}>
+                  {site.reportReceived ? "Complete" : site.inspectionScheduled ? "Scheduled" : "Not scheduled"}
                 </span>
               </div>
               <div className="flex justify-between">
@@ -348,6 +376,10 @@ function SiteCard({ site }: { site: {
           <div className="border border-gray-100 rounded p-3">
             <h3 className="text-xs font-medium text-gray-500 uppercase mb-2">Tracking</h3>
             <div className="space-y-1 text-sm">
+              <div className="flex justify-between">
+                <span className="text-gray-500">Tracking Status</span>
+                <span className="text-gray-800">{formatTrackingStateLabel(trackingState.trackingStatus, trackingState.trackingScope)}</span>
+              </div>
               <div className="flex justify-between">
                 <span className="text-gray-500">Responsible Party</span>
                 <span className="text-gray-800">{site.responsiblePartyName ?? "\u2014"}</span>
@@ -510,3 +542,5 @@ export default function Dashboard() {
     </main>
   );
 }
+
+
