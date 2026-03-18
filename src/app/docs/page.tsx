@@ -1,3 +1,10 @@
+import Link from "next/link";
+import {
+  PROMPT_DOCS,
+  getPromptBrowseUrl,
+  getPromptEditUrl,
+} from "@/lib/promptDocs";
+
 const lifecycleSteps = [
   {
     title: "1. Inbound capture",
@@ -114,6 +121,11 @@ const faqItems = [
     question: "What should happen to unknown or ambiguous emails?",
     answer:
       "They should stay under human control. Unknown is a routing problem, not a class you should push toward autonomy quickly.",
+  },
+  {
+    question: "How should prompt changes be made now?",
+    answer:
+      "Prompt changes should be made in the shared Git repository by editing the markdown files in prompt-sources, then letting the normal deploy flow publish the generated prompt library.",
   },
 ];
 
@@ -247,6 +259,102 @@ export default function DocsPage() {
               <p className="mt-2 text-sm leading-6 text-gray-600">{item.answer}</p>
             </div>
           ))}
+        </div>
+      </section>
+
+      <section className="space-y-5">
+        {sectionTitle(
+          "Prompt editing in team Git",
+          "Prompt changes should be managed like controlled operational config: versioned, reviewable, and deploy-backed."
+        )}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <div className="bg-white border border-gray-200 rounded-xl p-5 lg:col-span-2">
+            <h3 className="text-sm font-semibold text-gray-900">Recommended workflow</h3>
+            <ol className="mt-3 space-y-2 text-sm leading-6 text-gray-600 list-decimal pl-5">
+              <li>Keep the shared repo in a team Git org where approved operators can edit prompt markdown files.</li>
+              <li>Make changes only in <code>prompt-sources/</code>, not in generated files.</li>
+              <li>Prefer pull requests for prompt changes until the team has enough operating discipline to allow direct edits.</li>
+              <li>Let the build run <code>npm run prompts:sync</code> so markdown is converted into deploy-safe TypeScript before Vercel and Convex deploy.</li>
+              <li>Use the review insights dashboard after deploy to see whether the prompt change actually improved pass rate or reduced risky edits.</li>
+            </ol>
+          </div>
+          <div className="bg-blue-50 border border-blue-200 rounded-xl p-5">
+            <h3 className="text-sm font-semibold text-blue-900">One-time repo setup</h3>
+            <ul className="mt-3 space-y-2 text-sm leading-6 text-blue-900">
+              <li>Move or mirror this repo into the team Git organization.</li>
+              <li>Set branch protection or PR review rules for prompt edits.</li>
+              <li>Set <code>NEXT_PUBLIC_PROMPT_EDIT_BASE_URL</code> to your repo web edit path for <code>prompt-sources</code>.</li>
+              <li>Optionally set <code>NEXT_PUBLIC_PROMPT_BROWSE_BASE_URL</code> to the repo browse path for <code>prompt-sources</code>.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+          <div className="border-b border-gray-100 px-5 py-4">
+            <h3 className="text-sm font-semibold text-gray-900">Prompt source files</h3>
+            <p className="mt-1 text-sm text-gray-600">
+              These are the files approved users should edit in Git. Generated files are deploy artifacts and should not be edited by hand.
+            </p>
+          </div>
+          <div className="divide-y divide-gray-100">
+            {PROMPT_DOCS.map((prompt) => {
+              const editUrl = getPromptEditUrl(prompt.relativePath);
+              const browseUrl = getPromptBrowseUrl(prompt.relativePath);
+              return (
+                <div key={prompt.key} className="px-5 py-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-gray-900">{prompt.title}</div>
+                    <div className="mt-1 text-sm leading-6 text-gray-600">{prompt.description}</div>
+                    <div className="mt-2 text-xs font-mono text-gray-400">prompt-sources/{prompt.relativePath}</div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {browseUrl ? (
+                      <a
+                        href={browseUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="px-3 py-1.5 rounded-md text-xs font-medium border border-gray-200 text-gray-700 hover:bg-gray-50"
+                      >
+                        View in Git
+                      </a>
+                    ) : null}
+                    {editUrl ? (
+                      <a
+                        href={editUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="px-3 py-1.5 rounded-md text-xs font-medium bg-blue-600 text-white hover:bg-blue-700"
+                      >
+                        Edit in Git
+                      </a>
+                    ) : (
+                      <span className="px-3 py-1.5 rounded-md text-xs font-medium bg-gray-100 text-gray-500">
+                        Set prompt edit URL env to enable edit links
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-5">
+          <h3 className="text-sm font-semibold text-amber-900">Publishing behavior</h3>
+          <p className="mt-2 text-sm leading-6 text-amber-900">
+            Prompt edits do not go live until the repo deploys. That is deliberate. The markdown files are the human-editable source, and the build converts them into the generated prompt library consumed by Convex and the frontend.
+          </p>
+          <p className="mt-3 text-sm leading-6 text-amber-900">
+            Reviewers should use{" "}
+            <Link href="/review" className="font-medium underline">
+              the review queue
+            </Link>{" "}
+            and{" "}
+            <Link href="/review" className="font-medium underline">
+              learning insights
+            </Link>{" "}
+            after a prompt deploy to confirm the change improved behavior instead of just changing wording.
+          </p>
         </div>
       </section>
     </main>
