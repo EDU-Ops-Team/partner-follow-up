@@ -13,6 +13,11 @@ function getEnv(name: string): string {
   return v;
 }
 
+function getOptionalEnv(name: string): string | undefined {
+  const value = process.env[name]?.trim();
+  return value ? value : undefined;
+}
+
 /**
  * Extract the base ID (appXXX) and table ID (tblXXX) from an Airtable URL.
  */
@@ -151,6 +156,33 @@ interface AirtableApiResponse {
 
 async function fetchSharedViewCsv(viewUrl: string): Promise<AirtableRow[]> {
   return withRetry(async () => {
+    const explicitCsvUrl = getOptionalEnv("AIRTABLE_SHARED_VIEW_CSV_URL");
+    if (explicitCsvUrl) {
+      const csvResponse = await fetch(explicitCsvUrl, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (compatible; EDUOpsAgent/1.0)",
+          Accept: "text/csv,text/plain;q=0.9,*/*;q=0.8",
+        },
+      });
+
+      if (!csvResponse.ok) {
+        throw new Error(`Explicit shared view CSV fetch failed: ${csvResponse.status}`);
+      }
+
+      const csvText = await csvResponse.text();
+      const rows = parseAirtableCsv(csvText);
+      if (rows.length === 0) {
+        throw new Error("Explicit shared view CSV returned no rows");
+      }
+
+      logger.info("Fetched Airtable data via explicit shared view CSV URL", {
+        rowCount: rows.length,
+        source: "shared_view_csv_explicit",
+        sharedViewId: extractSharedViewId(viewUrl),
+      });
+      return rows;
+    }
+
     const response = await fetch(viewUrl, {
       headers: {
         "User-Agent": "Mozilla/5.0 (compatible; EDUOpsAgent/1.0)",
@@ -237,26 +269,28 @@ async function fetchAirtableViaApi(viewUrl: string): Promise<AirtableRow[]> {
  */
 export async function fetchAirtableData(viewUrl: string): Promise<AirtableRow[]> {
   let sharedViewError: string | null = null;
+  const strictSharedView = getOptionalEnv("AIRTABLE_STRICT_SHARED_VIEW") === "true";
+  const allowApiFallback = getOptionalEnv("AIRTABLE_ALLOW_API_FALLBACK") === "true" || !strictSharedView;
 
   if (viewUrl.includes("shr")) {
     try {
       return await fetchSharedViewCsv(viewUrl);
     } catch (error) {
       sharedViewError = error instanceof Error ? error.message : String(error);
-      logger.warn("Shared view CSV fetch failed, falling back if possible", {
+      logger.warn("Shared view CSV fetch failed", {
         error: sharedViewError,
       });
     }
   }
 
-  if (process.env.AIRTABLE_API_TOKEN) {
+  if (process.env.AIRTABLE_API_TOKEN && (!viewUrl.includes("shr") || allowApiFallback)) {
     return fetchAirtableViaApi(viewUrl);
   }
 
   throw new Error(
     sharedViewError
-      ? `Unable to fetch Airtable shared view CSV and no API token is configured: ${sharedViewError}`
-      : "Unable to fetch Airtable data: no shared view CSV path succeeded and no API token is configured"
+      ? `Unable to fetch Airtable shared view CSV: ${sharedViewError}`
+      : "Unable to fetch Airtable data: no shared view CSV path succeeded and API fallback is disabled"
   );
 }
 
