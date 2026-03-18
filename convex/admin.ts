@@ -2,6 +2,20 @@ import { action } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 
+type TriggerRunResult = {
+  success: boolean;
+  processed: number;
+  errors: string[];
+};
+
+type TriggerCheckResult =
+  | TriggerRunResult
+  | {
+      type: "tracking";
+      scheduling: TriggerRunResult;
+      completion: TriggerRunResult;
+    };
+
 function requireApiKey(apiKey: string) {
   const expected = process.env.ADMIN_API_KEY;
   if (!expected) {
@@ -21,12 +35,12 @@ export const triggerCheck = action({
       v.literal("tracking")
     ),
   },
-  handler: async (ctx, { apiKey, type }) => {
+  handler: async (ctx, { apiKey, type }): Promise<TriggerCheckResult> => {
     requireApiKey(apiKey);
 
     if (type === "tracking") {
-      const scheduling = await ctx.runAction(internal.checkScheduling.run, {});
-      const completion = await ctx.runAction(internal.checkCompletion.run, {});
+      const scheduling: TriggerRunResult = await ctx.runAction(internal.checkScheduling.run, {});
+      const completion: TriggerRunResult = await ctx.runAction(internal.checkCompletion.run, {});
       return {
         type,
         scheduling,
@@ -35,9 +49,9 @@ export const triggerCheck = action({
     }
 
     if (type === "scheduling") {
-      return ctx.runAction(internal.checkScheduling.run, {});
+      return (await ctx.runAction(internal.checkScheduling.run, {})) as TriggerRunResult;
     }
 
-    return ctx.runAction(internal.checkCompletion.run, {});
+    return (await ctx.runAction(internal.checkCompletion.run, {})) as TriggerRunResult;
   },
 });

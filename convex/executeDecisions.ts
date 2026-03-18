@@ -9,6 +9,18 @@ import { generateDraftReply } from "./services/claudeAI";
 import { executeTree, type DecisionContext } from "./services/decisionEngine";
 import { populateEmail, type TemplateContext } from "./services/templateEngine";
 
+type ThreadHistoryMessage = {
+  from: string;
+  receivedAt: number;
+  bodyPreview: string;
+};
+
+type PartnerContact = {
+  email: string;
+  name?: string;
+  isPrimary: boolean;
+};
+
 export const run = internalAction({
   handler: async (ctx): Promise<{ processed: number; errors: string[] }> => {
     const errors: string[] = [];
@@ -62,9 +74,9 @@ export const run = internalAction({
           const threadClassifications = await ctx.runQuery(internal.emailClassifications.listByThread, {
             threadId: classification.threadId,
           });
-          threadHistory = threadClassifications
-            .sort((a, b) => a.receivedAt - b.receivedAt)
-            .map((message) => ({
+          threadHistory = (threadClassifications as ThreadHistoryMessage[])
+            .sort((a: ThreadHistoryMessage, b: ThreadHistoryMessage) => a.receivedAt - b.receivedAt)
+            .map((message: ThreadHistoryMessage) => ({
               from: message.from,
               date: new Date(message.receivedAt).toISOString(),
               body: message.bodyPreview,
@@ -136,7 +148,9 @@ export const run = internalAction({
                 id: classification.matchedVendorId,
               });
               if (partner) {
-                const primaryContact = partner.contacts.find((contact) => contact.isPrimary) ?? partner.contacts[0];
+                const primaryContact =
+                  (partner.contacts as PartnerContact[]).find((contact: PartnerContact) => contact.isPrimary) ??
+                  (partner.contacts as PartnerContact[])[0];
                 matchedPartner = {
                   name: partner.name,
                   category: partner.category,
@@ -171,7 +185,9 @@ export const run = internalAction({
                 id: classification.matchedVendorId,
               });
               if (partner) {
-                const primaryContact = partner.contacts.find((contact) => contact.isPrimary) ?? partner.contacts[0];
+                const primaryContact =
+                  (partner.contacts as PartnerContact[]).find((contact: PartnerContact) => contact.isPrimary) ??
+                  (partner.contacts as PartnerContact[])[0];
                 matchedPartner = {
                   name: partner.name,
                   category: partner.category,

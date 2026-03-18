@@ -107,7 +107,10 @@ export const run = internalAction({
           parsed,
           vendorLookup,
           threadContext,
-          siteAddresses.map((s) => ({ id: s.id as string, normalizedAddress: s.normalizedAddress }))
+          siteAddresses.map((s: { id: Id<"sites">; normalizedAddress: string }) => ({
+            id: s.id as string,
+            normalizedAddress: s.normalizedAddress,
+          }))
         );
 
         // Classify
