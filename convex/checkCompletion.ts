@@ -303,6 +303,12 @@ export const run = internalAction({
         } catch (error) {
           const errMsg = error instanceof Error ? error.message : String(error);
           logger.error("check-completion: error", { siteId: site._id, error: errMsg });
+          await ctx.runMutation(internal.auditLogs.create, {
+            siteId: site._id,
+            action: "check_completion_error",
+            details: { message: errMsg },
+            level: "error",
+          });
           result.errors.push(`Site ${site._id}: ${errMsg}`);
         }
       }

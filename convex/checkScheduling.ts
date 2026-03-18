@@ -171,6 +171,17 @@ export const run = internalAction({
               });
             }
           } else {
+            const updated = Object.keys(pendingUpdates).length > 0
+              ? await ctx.runMutation(internal.sites.update, {
+                  id: site._id,
+                  updates: pendingUpdates,
+                })
+              : currentSite;
+
+            if (updated) {
+              Object.assign(currentSite, updated);
+            }
+
             const daysSinceTrigger = countBusinessDays(new Date(site.triggerDate), new Date(now));
             await postToChat(chatWebhook, schedulingReminderChat(currentSite, daysSinceTrigger));
             const email = schedulingReminderEmail(currentSite, daysSinceTrigger);
@@ -190,7 +201,11 @@ export const run = internalAction({
 
             await ctx.runMutation(internal.sites.update, {
               id: site._id,
-              updates: pendingUpdates,
+              updates: {
+                schedulingReminderCount: currentSite.schedulingReminderCount,
+                lastOutreachDate: currentSite.lastOutreachDate,
+                nextCheckDate: currentSite.nextCheckDate,
+              },
             });
             await ctx.runMutation(internal.auditLogs.create, {
               siteId: site._id,
@@ -209,6 +224,12 @@ export const run = internalAction({
         } catch (error) {
           const errMsg = error instanceof Error ? error.message : String(error);
           logger.error("check-scheduling: error processing site", { siteId: site._id, error: errMsg });
+          await ctx.runMutation(internal.auditLogs.create, {
+            siteId: site._id,
+            action: "check_scheduling_error",
+            details: { message: errMsg },
+            level: "error",
+          });
           result.errors.push(`Site ${site._id}: ${errMsg}`);
         }
       }
