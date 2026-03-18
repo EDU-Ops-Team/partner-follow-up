@@ -59,13 +59,13 @@ export const getByTriggerEmailId = internalQuery({
 });
 
 export const getDueSites = internalQuery({
-  args: { phase: v.string(), now: v.number() },
-  handler: async (ctx, { phase, now }) => {
+  args: { phase: v.string(), now: v.number(), includeAll: v.optional(v.boolean()) },
+  handler: async (ctx, { phase, now, includeAll }) => {
     const all = await ctx.db
       .query("sites")
       .withIndex("by_phase", (q) => q.eq("phase", phase as "scheduling" | "completion"))
       .collect();
-    return all.filter((s) => s.nextCheckDate <= now);
+    return includeAll ? all : all.filter((s) => s.nextCheckDate <= now);
   },
 });
 

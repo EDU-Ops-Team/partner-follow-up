@@ -154,6 +154,112 @@ interface AirtableApiResponse {
   offset?: string;
 }
 
+interface SharedViewColumn {
+  id: string;
+  name: string;
+  type?: string;
+  typeOptions?: {
+    choices?: Record<string, { id: string; name: string }>;
+  };
+}
+
+interface SharedViewRow {
+  id: string;
+  cellValuesByColumnId: Record<string, unknown>;
+}
+
+interface SharedViewResponse {
+  msg: string;
+  data: {
+    table: {
+      columns: SharedViewColumn[];
+      rows: SharedViewRow[];
+    };
+  };
+}
+
+function extractSharedViewDataUrlFromHtml(html: string, viewUrl: string): string | null {
+  const normalizedHtml = normalizeScrapedUrl(html).replace(/&amp;/gi, "&");
+  const match = normalizedHtml.match(/urlWithParams:\s*"([^"]*readSharedViewData[^"]*)"/);
+  return match ? new URL(match[1], viewUrl).toString() : null;
+}
+
+function mapSharedViewRows(columns: SharedViewColumn[], rows: SharedViewRow[]): AirtableRow[] {
+  const columnById = new Map(columns.map((column) => [column.id, column]));
+
+  return rows
+    .map((row) => {
+      const record: Record<string, unknown> = {};
+      for (const [columnId, rawValue] of Object.entries(row.cellValuesByColumnId ?? {})) {
+        const column = columnById.get(columnId);
+        if (!column) continue;
+
+        let value = rawValue;
+        const choices = column.typeOptions?.choices;
+        if (choices && typeof rawValue === "string" && choices[rawValue]) {
+          value = choices[rawValue].name;
+        }
+
+        record[column.name] = value;
+      }
+      return mapRowToAirtable(record);
+    })
+    .filter((row) => row.address);
+}
+
+async function fetchSharedViewData(viewUrl: string): Promise<AirtableRow[]> {
+  return withRetry(async () => {
+    const pageResponse = await fetch(viewUrl, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
+        "Accept-Language": "en-US,en;q=0.9",
+      },
+    });
+
+    if (!pageResponse.ok) {
+      throw new Error(`Shared view fetch failed: ${pageResponse.status}`);
+    }
+
+    const html = await pageResponse.text();
+    const dataUrl = extractSharedViewDataUrlFromHtml(html, viewUrl);
+    if (!dataUrl) {
+      throw new Error("Shared view data URL not found in page payload");
+    }
+
+    const applicationId = viewUrl.match(/(app\w+)/)?.[1];
+    const dataResponse = await fetch(dataUrl, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
+        Accept: "application/json,text/plain,*/*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "X-Requested-With": "XMLHttpRequest",
+        "x-user-locale": "en",
+        "x-airtable-inter-service-client": "webClient",
+        "x-time-zone": "America/Chicago",
+        ...(applicationId ? { "x-airtable-application-id": applicationId } : {}),
+      },
+    });
+
+    if (!dataResponse.ok) {
+      throw new Error(`Shared view data fetch failed: ${dataResponse.status}`);
+    }
+
+    const payload = (await dataResponse.json()) as SharedViewResponse;
+    const rows = mapSharedViewRows(payload.data.table.columns, payload.data.table.rows);
+    if (rows.length === 0) {
+      throw new Error("Shared view data returned no rows");
+    }
+
+    logger.info("Fetched Airtable data via shared view data endpoint", {
+      rowCount: rows.length,
+      source: "shared_view_data",
+      sharedViewId: extractSharedViewId(viewUrl),
+    });
+
+    return rows;
+  }, { maxRetries: 2, context: "airtable-shared-view-data" });
+}
+
 async function fetchSharedViewCsv(viewUrl: string): Promise<AirtableRow[]> {
   return withRetry(async () => {
     const explicitCsvUrl = getOptionalEnv("AIRTABLE_SHARED_VIEW_CSV_URL");
@@ -278,6 +384,15 @@ export async function fetchAirtableData(viewUrl: string): Promise<AirtableRow[]>
     } catch (error) {
       sharedViewError = error instanceof Error ? error.message : String(error);
       logger.warn("Shared view CSV fetch failed", {
+        error: sharedViewError,
+      });
+    }
+
+    try {
+      return await fetchSharedViewData(viewUrl);
+    } catch (error) {
+      sharedViewError = error instanceof Error ? error.message : String(error);
+      logger.warn("Shared view data fetch failed", {
         error: sharedViewError,
       });
     }

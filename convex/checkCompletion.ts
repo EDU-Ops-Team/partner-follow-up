@@ -2,6 +2,7 @@
 
 import { internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
+import { v } from "convex/values";
 import {
   REPORT_REMINDER_INTERVAL_DAYS,
   INSPECTION_CONTACT_EMAIL,
@@ -38,12 +39,15 @@ function parseScheduledDatetime(dateValue?: string, timeValue?: string): number 
 }
 
 export const run = internalAction({
-  handler: async (ctx) => {
+  args: {
+    includeAll: v.optional(v.boolean()),
+  },
+  handler: async (ctx, { includeAll }) => {
     const result = { success: true, processed: 0, errors: [] as string[] };
 
     try {
       const now = Date.now();
-      const dueSites = await ctx.runQuery(internal.sites.getDueSites, { phase: "completion", now });
+      const dueSites = await ctx.runQuery(internal.sites.getDueSites, { phase: "completion", now, includeAll });
 
       if (dueSites.length === 0) {
         logger.info("check-completion: no sites due");

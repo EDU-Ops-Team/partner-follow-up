@@ -5,8 +5,8 @@ const crons = cronJobs();
 
 // Legacy crons — only tracking refreshes are enabled right now.
 // crons.interval("check email", { minutes: 15 }, internal.checkEmail.run);
-crons.interval("check scheduling", { minutes: 30 }, internal.checkScheduling.run);
-crons.interval("check completion", { minutes: 30 }, internal.checkCompletion.run);
+crons.interval("check scheduling", { minutes: 30 }, internal.checkScheduling.run, {});
+crons.interval("check completion", { minutes: 30 }, internal.checkCompletion.run, {});
 // crons.interval("check replies", { minutes: 15 }, internal.checkReplies.run);
 
 // Email agent crons — enabled for testing

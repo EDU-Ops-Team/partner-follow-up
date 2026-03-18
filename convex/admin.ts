@@ -39,8 +39,8 @@ export const triggerCheck = action({
     requireApiKey(apiKey);
 
     if (type === "tracking") {
-      const scheduling: TriggerRunResult = await ctx.runAction(internal.checkScheduling.run, {});
-      const completion: TriggerRunResult = await ctx.runAction(internal.checkCompletion.run, {});
+      const scheduling: TriggerRunResult = await ctx.runAction(internal.checkScheduling.run, { includeAll: true });
+      const completion: TriggerRunResult = await ctx.runAction(internal.checkCompletion.run, { includeAll: true });
       return {
         type,
         scheduling,
@@ -49,9 +49,9 @@ export const triggerCheck = action({
     }
 
     if (type === "scheduling") {
-      return (await ctx.runAction(internal.checkScheduling.run, {})) as TriggerRunResult;
+      return (await ctx.runAction(internal.checkScheduling.run, { includeAll: true })) as TriggerRunResult;
     }
 
-    return (await ctx.runAction(internal.checkCompletion.run, {})) as TriggerRunResult;
+    return (await ctx.runAction(internal.checkCompletion.run, { includeAll: true })) as TriggerRunResult;
   },
 });
