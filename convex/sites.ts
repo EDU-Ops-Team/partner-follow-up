@@ -2,12 +2,68 @@ import { query, mutation, internalQuery, internalMutation } from "./_generated/s
 import { v } from "convex/values";
 import { similarity } from "./lib/addressNormalizer";
 import { ADDRESS_MATCH_THRESHOLD } from "./lib/constants";
+import { PHASE_ONE_TASK_TEMPLATES, calculateProgress, getTaskProgressValue } from "../shared/taskModel";
+
+async function seedPhaseOneTasks(
+  ctx: { db: { insert: Function; query: Function } },
+  siteId: string,
+  createdAt: number,
+) {
+  const existing = await ctx.db
+    .query("tasks")
+    .withIndex("by_siteId", (q: { eq: Function }) => q.eq("siteId", siteId as never))
+    .collect();
+  const existingKeys = new Set(existing.map((task: { partnerKey: string; taskType: string }) => `${task.partnerKey}:${task.taskType}`));
+
+  for (const template of PHASE_ONE_TASK_TEMPLATES) {
+    const key = `${template.partnerKey}:${template.taskType}`;
+    if (existingKeys.has(key)) {
+      continue;
+    }
+
+    const taskId = await ctx.db.insert("tasks", {
+      siteId: siteId as never,
+      partnerKey: template.partnerKey,
+      partnerName: template.partnerName,
+      taskType: template.taskType,
+      milestone: template.milestone,
+      state: "requested",
+      stateUpdatedAt: createdAt,
+      lastProgressValue: getTaskProgressValue("requested"),
+      createdBy: "system",
+      source: "task_template",
+    });
+
+    await ctx.db.insert("taskEvents", {
+      taskId,
+      siteId: siteId as never,
+      toState: "requested",
+      sourceType: "site_seed",
+      note: "Seeded M1 task template",
+      createdAt,
+    });
+  }
+}
 
 // Public Queries (for dashboard)
 
 export const list = query({
   handler: async (ctx) => {
-    return ctx.db.query("sites").order("desc").collect();
+    const sites = await ctx.db.query("sites").order("desc").collect();
+    return Promise.all(
+      sites.map(async (site) => {
+        const tasks = await ctx.db
+          .query("tasks")
+          .withIndex("by_siteId", (q) => q.eq("siteId", site._id))
+          .collect();
+        const progress = calculateProgress(tasks);
+        return {
+          ...site,
+          tasks,
+          progress,
+        };
+      }),
+    );
   },
 });
 
@@ -25,7 +81,17 @@ export const getStats = query({
 export const getById = query({
   args: { id: v.id("sites") },
   handler: async (ctx, { id }) => {
-    return ctx.db.get(id);
+    const site = await ctx.db.get(id);
+    if (!site) return null;
+    const tasks = await ctx.db
+      .query("tasks")
+      .withIndex("by_siteId", (q) => q.eq("siteId", id))
+      .collect();
+    return {
+      ...site,
+      tasks,
+      progress: calculateProgress(tasks),
+    };
   },
 });
 
@@ -84,7 +150,7 @@ export const create = internalMutation({
     nextCheckDate: v.number(),
   },
   handler: async (ctx, args) => {
-    return ctx.db.insert("sites", {
+    const siteId = await ctx.db.insert("sites", {
       ...args,
       phase: "scheduling",
       lidarScheduled: false,
@@ -99,6 +165,8 @@ export const create = internalMutation({
       bothScheduledNotified: false,
       resolved: false,
     });
+    await seedPhaseOneTasks(ctx, siteId, args.triggerDate);
+    return siteId;
   },
 });
 
@@ -177,6 +245,7 @@ export const findOrCreateByAddress = internalMutation({
       bothScheduledNotified: false,
       resolved: false,
     });
+    await seedPhaseOneTasks(ctx, siteId, args.triggerEmail.receivedAt);
     return { siteId, created: true };
   },
 });
@@ -204,7 +273,7 @@ export const adminCreate = mutation({
     nextCheckDate: v.number(),
   },
   handler: async (ctx, args) => {
-    return ctx.db.insert("sites", {
+    const siteId = await ctx.db.insert("sites", {
       ...args,
       phase: "scheduling",
       lidarScheduled: false,
@@ -219,6 +288,8 @@ export const adminCreate = mutation({
       bothScheduledNotified: false,
       resolved: false,
     });
+    await seedPhaseOneTasks(ctx, siteId, args.triggerDate);
+    return siteId;
   },
 });
 

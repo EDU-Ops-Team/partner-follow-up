@@ -14,6 +14,12 @@ type TriggerCheckResult =
       type: "tracking";
       scheduling: TriggerRunResult;
       completion: TriggerRunResult;
+    }
+  | {
+      type: "tasks";
+      siteCount: number;
+      tasksCreated: number;
+      tasksUpdated: number;
     };
 
 function requireApiKey(apiKey: string) {
@@ -32,7 +38,8 @@ export const triggerCheck = action({
     type: v.union(
       v.literal("scheduling"),
       v.literal("completion"),
-      v.literal("tracking")
+      v.literal("tracking"),
+      v.literal("tasks")
     ),
   },
   handler: async (ctx, { apiKey, type }): Promise<TriggerCheckResult> => {
@@ -50,6 +57,13 @@ export const triggerCheck = action({
 
     if (type === "scheduling") {
       return (await ctx.runAction(internal.checkScheduling.run, { includeAll: true })) as TriggerRunResult;
+    }
+
+    if (type === "tasks") {
+      return {
+        type,
+        ...(await ctx.runMutation(internal.tasks.backfillAll, {})),
+      };
     }
 
     return (await ctx.runAction(internal.checkCompletion.run, { includeAll: true })) as TriggerRunResult;

@@ -2,10 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { api } from "convex/_generated/api";
 import { getServerApiKey, getServerConvex, requireReviewer } from "@/lib/serverConvex";
 
-type TriggerType = "scheduling" | "completion" | "tracking";
+type TriggerType = "scheduling" | "completion" | "tracking" | "tasks";
 
 function isTriggerType(value: string): value is TriggerType {
-  return value === "scheduling" || value === "completion" || value === "tracking";
+  return value === "scheduling" || value === "completion" || value === "tracking" || value === "tasks";
 }
 
 export async function POST(request: NextRequest) {
@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
 
   if (!type || !isTriggerType(type)) {
     return NextResponse.json(
-      { error: "type must be one of: scheduling, completion, tracking" },
+      { error: "type must be one of: scheduling, completion, tracking, tasks" },
       { status: 400 }
     );
   }

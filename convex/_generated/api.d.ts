@@ -57,6 +57,7 @@ import type * as services_googleSheets from "../services/googleSheets.js";
 import type * as services_replyParser from "../services/replyParser.js";
 import type * as services_templateEngine from "../services/templateEngine.js";
 import type * as sites from "../sites.js";
+import type * as tasks from "../tasks.js";
 import type * as vendors from "../vendors.js";
 
 import type {
@@ -115,6 +116,7 @@ declare const fullApi: ApiFromModules<{
   "services/replyParser": typeof services_replyParser;
   "services/templateEngine": typeof services_templateEngine;
   sites: typeof sites;
+  tasks: typeof tasks;
   vendors: typeof vendors;
 }>;
 

@@ -313,5 +313,142 @@ export default defineSchema({
   })
     .index("by_googleId", ["googleId"])
     .index("by_email", ["email"]),
+
+  tasks: defineTable({
+    siteId: v.id("sites"),
+    partnerKey: v.string(),
+    partnerName: v.string(),
+    taskType: v.union(
+      v.literal("sir"),
+      v.literal("lidar_scan"),
+      v.literal("building_inspection")
+    ),
+    milestone: v.literal("M1"),
+    state: v.union(
+      v.literal("not_started"),
+      v.literal("requested"),
+      v.literal("scheduled"),
+      v.literal("in_progress"),
+      v.literal("in_review"),
+      v.literal("completed"),
+      v.literal("blocked"),
+      v.literal("not_needed")
+    ),
+    stateUpdatedAt: v.number(),
+    lastProgressValue: v.float64(),
+    deliverableUrl: v.optional(v.string()),
+    source: v.optional(v.string()),
+    notes: v.optional(v.string()),
+    createdBy: v.string(),
+    scopeChanged: v.optional(v.boolean()),
+  })
+    .index("by_siteId", ["siteId"])
+    .index("by_state", ["state"])
+    .index("by_siteId_milestone", ["siteId", "milestone"])
+    .index("by_site_partner_task", ["siteId", "partnerKey", "taskType"]),
+
+  taskEvents: defineTable({
+    taskId: v.id("tasks"),
+    siteId: v.id("sites"),
+    fromState: v.optional(v.union(
+      v.literal("not_started"),
+      v.literal("requested"),
+      v.literal("scheduled"),
+      v.literal("in_progress"),
+      v.literal("in_review"),
+      v.literal("completed"),
+      v.literal("blocked"),
+      v.literal("not_needed")
+    )),
+    toState: v.union(
+      v.literal("not_started"),
+      v.literal("requested"),
+      v.literal("scheduled"),
+      v.literal("in_progress"),
+      v.literal("in_review"),
+      v.literal("completed"),
+      v.literal("blocked"),
+      v.literal("not_needed")
+    ),
+    sourceType: v.union(
+      v.literal("site_seed"),
+      v.literal("site_sync"),
+      v.literal("email_backfill"),
+      v.literal("live_email"),
+      v.literal("manual")
+    ),
+    sourceMessageId: v.optional(v.string()),
+    approvedBy: v.optional(v.string()),
+    approvedAt: v.optional(v.number()),
+    note: v.optional(v.string()),
+    evidence: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_taskId", ["taskId"])
+    .index("by_siteId", ["siteId"]),
+
+  groupThreads: defineTable({
+    groupThreadId: v.string(),
+    subject: v.string(),
+    participants: v.array(v.string()),
+    firstMessageAt: v.optional(v.number()),
+    lastMessageAt: v.optional(v.number()),
+    sourceUrl: v.optional(v.string()),
+    scrapedAt: v.number(),
+  })
+    .index("by_groupThreadId", ["groupThreadId"]),
+
+  groupMessages: defineTable({
+    groupThreadId: v.string(),
+    externalMessageId: v.string(),
+    from: v.string(),
+    to: v.array(v.string()),
+    cc: v.array(v.string()),
+    sentAt: v.number(),
+    subject: v.string(),
+    bodyText: v.string(),
+    bodyHtml: v.optional(v.string()),
+    attachments: v.optional(v.array(v.object({
+      name: v.string(),
+      mimeType: v.optional(v.string()),
+      url: v.optional(v.string()),
+    }))),
+    sourceUrl: v.optional(v.string()),
+    scrapedAt: v.number(),
+  })
+    .index("by_externalMessageId", ["externalMessageId"])
+    .index("by_groupThreadId", ["groupThreadId"]),
+
+  taskSignals: defineTable({
+    messageId: v.id("groupMessages"),
+    siteId: v.optional(v.id("sites")),
+    partnerKey: v.optional(v.string()),
+    taskType: v.optional(v.union(
+      v.literal("sir"),
+      v.literal("lidar_scan"),
+      v.literal("building_inspection")
+    )),
+    proposedState: v.optional(v.union(
+      v.literal("not_started"),
+      v.literal("requested"),
+      v.literal("scheduled"),
+      v.literal("in_progress"),
+      v.literal("in_review"),
+      v.literal("completed"),
+      v.literal("blocked"),
+      v.literal("not_needed")
+    )),
+    confidence: v.float64(),
+    evidenceSnippet: v.optional(v.string()),
+    detector: v.string(),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("approved"),
+      v.literal("rejected"),
+      v.literal("applied")
+    ),
+  })
+    .index("by_messageId", ["messageId"])
+    .index("by_status", ["status"]),
 });
 

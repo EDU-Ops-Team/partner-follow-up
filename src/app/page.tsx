@@ -6,21 +6,50 @@ import { useQuery } from "convex/react";
 import { api } from "convex/_generated/api";
 import type { Doc, Id } from "convex/_generated/dataModel";
 import { deriveTrackingState, formatTrackingStateLabel, isLidarComplete, type TrackingScope, type TrackingStatus } from "../../shared/siteTracking";
+import { formatTaskStateLabel, formatTaskTypeLabel, type TaskState, type TaskType } from "../../shared/taskModel";
 
 // ── Badges ──
 
 
-function trackingBadge(status: TrackingStatus, scope: TrackingScope) {
-  const colors: Record<TrackingStatus, string> = {
-    scheduling: "bg-gray-100 text-gray-700",
+function taskStateBadge(state: TaskState) {
+  const colors: Record<TaskState, string> = {
+    not_started: "bg-gray-100 text-gray-600",
+    requested: "bg-amber-100 text-amber-800",
     scheduled: "bg-sky-100 text-sky-800",
-    complete: "bg-emerald-100 text-emerald-800",
-    resolved: "bg-green-100 text-green-800",
+    in_progress: "bg-indigo-100 text-indigo-800",
+    in_review: "bg-violet-100 text-violet-800",
+    completed: "bg-emerald-100 text-emerald-800",
+    blocked: "bg-rose-100 text-rose-800",
+    not_needed: "bg-gray-100 text-gray-500",
   };
   return (
-    <span className={`inline-block px-2 py-1 rounded text-xs font-medium ${colors[status]}`}>
-      {formatTrackingStateLabel(status, scope)}
+    <span className={`inline-block px-2 py-1 rounded text-xs font-medium ${colors[state]}`}>
+      {formatTaskStateLabel(state)}
     </span>
+  );
+}
+
+function progressTone(percentComplete: number) {
+  if (percentComplete >= 80) return "bg-emerald-500";
+  if (percentComplete >= 40) return "bg-sky-500";
+  return "bg-amber-500";
+}
+
+function ProgressBar({ percentComplete }: { percentComplete: number }) {
+  const bounded = Math.max(0, Math.min(100, percentComplete));
+  return (
+    <div className="w-full">
+      <div className="flex items-center justify-between text-xs font-medium text-gray-600 mb-1">
+        <span>Progress</span>
+        <span>{bounded.toFixed(1)}%</span>
+      </div>
+      <div className="h-2.5 rounded-full bg-gray-100 overflow-hidden">
+        <div
+          className={`h-full rounded-full transition-all ${progressTone(bounded)}`}
+          style={{ width: `${bounded}%` }}
+        />
+      </div>
+    </div>
   );
 }
 
@@ -302,6 +331,23 @@ function SiteCard({ site }: { site: {
   trackingUpdatedAt?: number;
   lidarLastCheckedAt?: number;
   inspectionLastCheckedAt?: number;
+  tasks: Array<{
+    _id: Id<"tasks">;
+    taskType: TaskType;
+    partnerKey: string;
+    partnerName: string;
+    state: TaskState;
+    stateUpdatedAt: number;
+    deliverableUrl?: string;
+    scopeChanged?: boolean;
+  }>;
+  progress: {
+    percentComplete: number;
+    activeTaskCount: number;
+    completedTaskCount: number;
+    blockedTaskCount: number;
+    scopeChanged: boolean;
+  };
 } }) {
   const [expanded, setExpanded] = useState(false);
   const trackingState = site.trackingStatus && site.trackingScope
@@ -321,11 +367,23 @@ function SiteCard({ site }: { site: {
         onClick={() => setExpanded(!expanded)}
         className="w-full text-left p-5"
       >
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <h2 className="text-lg font-semibold">{site.fullAddress ?? site.siteAddress}</h2>
-            {trackingBadge(trackingState.trackingStatus, trackingState.trackingScope)}
-            <span className="text-gray-400 text-sm">{expanded ? "\u25B2" : "\u25BC"}</span>
+        <div className="flex items-start justify-between gap-4 mb-4">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-3 mb-2">
+              <h2 className="text-lg font-semibold">{site.fullAddress ?? site.siteAddress}</h2>
+              {site.progress.scopeChanged && (
+                <span className="inline-block px-2 py-1 rounded text-xs font-medium bg-amber-100 text-amber-800">
+                  Scope changed
+                </span>
+              )}
+              <span className="text-gray-400 text-sm">{expanded ? "\u25B2" : "\u25BC"}</span>
+            </div>
+            <ProgressBar percentComplete={site.progress.percentComplete} />
+            <div className="mt-2 flex flex-wrap gap-2 text-xs text-gray-500">
+              <span>{site.progress.completedTaskCount}/{site.progress.activeTaskCount} tasks complete</span>
+              {site.progress.blockedTaskCount > 0 && <span>{site.progress.blockedTaskCount} blocked</span>}
+              <span>{formatTrackingStateLabel(trackingState.trackingStatus, trackingState.trackingScope)}</span>
+            </div>
           </div>
           <div className="text-sm text-gray-500">
             {site.resolved ? "Resolved" : `Next check: ${formatDate(site.nextCheckDate)}`}
@@ -383,11 +441,30 @@ function SiteCard({ site }: { site: {
             </div>
           </div>
           <div className="border border-gray-100 rounded p-3">
+            <h3 className="text-xs font-medium text-gray-500 uppercase mb-2">Tasks</h3>
+            <div className="space-y-2 text-sm">
+              {site.tasks.map((task) => (
+                <div key={task._id} className="rounded border border-gray-100 px-2 py-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="font-medium text-gray-800">{formatTaskTypeLabel(task.taskType)}</div>
+                      <div className="text-xs text-gray-500">{task.partnerName}</div>
+                    </div>
+                    {taskStateBadge(task.state)}
+                  </div>
+                  <div className="mt-1 text-xs text-gray-400">
+                    Updated {timeAgo(task.stateUpdatedAt)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="border border-gray-100 rounded p-3 md:col-span-3">
             <h3 className="text-xs font-medium text-gray-500 uppercase mb-2">Tracking</h3>
-            <div className="space-y-1 text-sm">
-              <div className="flex justify-between">
-                <span className="text-gray-500">Tracking Status</span>
-                <span className="text-gray-800">{formatTrackingStateLabel(trackingState.trackingStatus, trackingState.trackingScope)}</span>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Tracking Status</span>
+                  <span className="text-gray-800">{formatTrackingStateLabel(trackingState.trackingStatus, trackingState.trackingScope)}</span>
               </div>
               <div className="flex justify-between items-center gap-3">
                 <span className="text-gray-500">Tracking Pulled</span>
@@ -421,10 +498,10 @@ function SiteCard({ site }: { site: {
                 <span className="text-gray-500">Triggered</span>
                 <span className="text-gray-800">{formatDate(site.triggerDate)}</span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500">Reminders</span>
-                <span className="text-gray-800">{site.schedulingReminderCount + site.reportReminderCount}</span>
-              </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Reminders</span>
+                  <span className="text-gray-800">{site.schedulingReminderCount + site.reportReminderCount}</span>
+                </div>
             </div>
           </div>
         </div>
@@ -546,7 +623,7 @@ function AdminTrackingControls() {
   const { data: session } = useSession();
   const role = (session?.user as { role?: "admin" | "reviewer" } | undefined)?.role;
   const isAdmin = role === "admin";
-  const [running, setRunning] = useState<"scheduling" | "completion" | "tracking" | null>(null);
+  const [running, setRunning] = useState<"scheduling" | "completion" | "tracking" | "tasks" | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -554,7 +631,7 @@ function AdminTrackingControls() {
     return null;
   }
 
-  async function trigger(type: "scheduling" | "completion" | "tracking") {
+  async function trigger(type: "scheduling" | "completion" | "tracking" | "tasks") {
     setRunning(type);
     setMessage(null);
     setError(null);
@@ -575,6 +652,9 @@ function AdminTrackingControls() {
           errors?: string[];
           scheduling?: { processed?: number; errors?: string[] };
           completion?: { processed?: number; errors?: string[] };
+          siteCount?: number;
+          tasksCreated?: number;
+          tasksUpdated?: number;
         };
       };
 
@@ -585,6 +665,10 @@ function AdminTrackingControls() {
       if (type === "tracking" && payload.result?.scheduling && payload.result?.completion) {
         setMessage(
           `Tracking refresh ran. Scheduling processed ${payload.result.scheduling.processed ?? 0}; completion processed ${payload.result.completion.processed ?? 0}.`
+        );
+      } else if (type === "tasks") {
+        setMessage(
+          `Task backfill ran. ${payload.result?.tasksCreated ?? 0} task(s) created across ${payload.result?.siteCount ?? 0} site(s); ${payload.result?.tasksUpdated ?? 0} task(s) synced.`
         );
       } else {
         setMessage(
@@ -628,6 +712,13 @@ function AdminTrackingControls() {
             className="rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {running === "tracking" ? "Running..." : "Run Both"}
+          </button>
+          <button
+            onClick={() => trigger("tasks")}
+            disabled={running !== null}
+            className="rounded-md bg-white px-3 py-2 text-sm font-medium text-blue-700 ring-1 ring-blue-200 transition-colors hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {running === "tasks" ? "Running..." : "Backfill Tasks"}
           </button>
         </div>
       </div>

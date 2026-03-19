@@ -207,6 +207,10 @@ export const run = internalAction({
               : currentSite;
 
             if (updated) {
+              await ctx.runMutation(internal.tasks.syncFromSite, {
+                siteId: site._id,
+                updatedAt: now,
+              });
               await postToChat(chatWebhook, bothScheduledChat(updated));
               await ctx.runMutation(internal.auditLogs.create, {
                 siteId: site._id,
@@ -225,6 +229,10 @@ export const run = internalAction({
 
             if (updated) {
               Object.assign(currentSite, updated);
+              await ctx.runMutation(internal.tasks.syncFromSite, {
+                siteId: site._id,
+                updatedAt: now,
+              });
             }
 
             const daysSinceTrigger = countBusinessDays(new Date(site.triggerDate), new Date(now));

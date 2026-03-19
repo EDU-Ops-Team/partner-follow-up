@@ -217,6 +217,11 @@ export const run = internalAction({
             }
           }
 
+          await ctx.runMutation(internal.tasks.syncFromSite, {
+            siteId: site._id,
+            updatedAt: now,
+          });
+
           let anyNotified = false;
 
           if (lidarComplete && !site.lidarCompleteNotified) {
