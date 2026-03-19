@@ -96,6 +96,10 @@ async function writeDebugSnapshot(page, filePath) {
   fs.writeFileSync(filePath, JSON.stringify(debug, null, 2));
 }
 
+function makeDebugPath(name) {
+  return path.join(process.cwd(), ".local", name);
+}
+
 function splitAddressHeader(value) {
   if (!value) return [];
   return value
@@ -125,13 +129,150 @@ async function collectThreadSummaries(page, selectors) {
   }, selectors);
 }
 
+async function extractThreadFromDataScript(page) {
+  return page.evaluate(() => {
+    const script = Array.from(document.scripts).find((node) => node.textContent?.includes("key: 'ds:11'"));
+    if (!script?.textContent) {
+      return null;
+    }
+
+    let callbackPayload = null;
+    const AF_initDataCallback = (payload) => {
+      callbackPayload = payload;
+    };
+
+    eval(script.textContent);
+
+    const data = callbackPayload?.data;
+    if (!Array.isArray(data)) {
+      return null;
+    }
+
+    const isMessageMeta = (value) => Array.isArray(value)
+      && typeof value[1] === "string"
+      && Array.isArray(value[2])
+      && typeof value[5] === "string"
+      && Array.isArray(value[7]);
+
+    const collectMessagePairs = (value, pairs = []) => {
+      if (!Array.isArray(value)) {
+        return pairs;
+      }
+      if (value.length >= 2 && isMessageMeta(value[0]) && Array.isArray(value[1])) {
+        pairs.push([value[0], value[1]]);
+      }
+      for (const child of value) {
+        collectMessagePairs(child, pairs);
+      }
+      return pairs;
+    };
+
+    const readHtml = (details) => {
+      const htmlSection = Array.isArray(details?.[1]) ? details[1] : [];
+      const htmlEntry = htmlSection.find((entry) => Array.isArray(entry) && entry[0] === 1 && Array.isArray(entry[1]));
+      return htmlEntry?.[1]?.[1] ?? "";
+    };
+
+    const stripHtml = (html) => {
+      if (!html) {
+        return "";
+      }
+      try {
+        const parsed = new DOMParser().parseFromString(html, "text/html");
+        return parsed.body?.textContent?.trim() ?? "";
+      } catch (error) {
+        return html
+          .replace(/<style[\s\S]*?<\/style>/gi, " ")
+          .replace(/<script[\s\S]*?<\/script>/gi, " ")
+          .replace(/<[^>]+>/g, " ")
+          .replace(/\s+/g, " ")
+          .trim();
+      }
+    };
+
+    const readAttachments = (details) => {
+      const attachmentSection = Array.isArray(details?.[2]) ? details[2] : [];
+      return attachmentSection
+        .filter((entry) => Array.isArray(entry))
+        .map((entry) => ({
+          url: entry[0] ?? "",
+          mimeType: entry[3] ?? "",
+          name: entry[4] ?? "attachment",
+          size: typeof entry[5] === "number" ? entry[5] : null,
+        }))
+        .filter((entry) => entry.url || entry.name);
+    };
+
+    const readRecipients = (metaRecipients) => {
+      if (!Array.isArray(metaRecipients)) {
+        return [];
+      }
+      return metaRecipients
+        .map((recipient) => recipient?.[2] ?? recipient?.[0] ?? "")
+        .filter(Boolean);
+    };
+
+    const pairs = collectMessagePairs(data);
+    if (!pairs.length) {
+      return null;
+    }
+
+    const messages = pairs.map(([meta, details], index) => {
+      const sender = meta[2]?.[0];
+      const recipients = meta[2]?.[1];
+      const bodyHtml = readHtml(details);
+      const bodyText = stripHtml(bodyHtml) || meta[6] || "";
+      const timestamp = Array.isArray(meta[7]) ? meta[7] : [];
+      const sentAt = typeof timestamp[0] === "number"
+        ? (timestamp[0] * 1000) + Math.floor((timestamp[1] ?? 0) / 1000000)
+        : Date.now();
+
+      return {
+        externalMessageId: meta[1] ?? `message-${index}`,
+        from: sender?.[2] ?? sender?.[0] ?? "",
+        to: readRecipients(recipients),
+        cc: [],
+        sentAt,
+        subject: meta[5] ?? document.title,
+        bodyText,
+        bodyHtml,
+        attachments: readAttachments(details),
+      };
+    });
+
+    return {
+      participants: Array.from(new Set(messages.flatMap((message) => [message.from, ...message.to, ...message.cc]).filter(Boolean))),
+      messages,
+      source: "data_script",
+    };
+  });
+}
+
 async function extractThread(page, threadSummary, selectors) {
   if (!threadSummary.href) {
     throw new Error(`Thread ${threadSummary.threadId} is missing an href. Update thread selectors.`);
   }
 
   await page.goto(threadSummary.href, { waitUntil: "domcontentloaded" });
-  await page.waitForSelector(selectors.messageItem, { timeout: 15000 });
+  await writeDebugSnapshot(page, makeDebugPath("groups-thread-current.json"));
+
+  const scriptedThread = await extractThreadFromDataScript(page);
+  if (scriptedThread?.messages?.length) {
+    return scriptedThread;
+  }
+
+  try {
+    await page.waitForSelector(selectors.messageItem, { timeout: 15000 });
+  } catch (error) {
+    const safeThreadId = threadSummary.threadId.replace(/[^a-z0-9_-]+/gi, "_");
+    const debugPath = makeDebugPath(`groups-thread-debug-${safeThreadId}.json`);
+    if (!page.isClosed()) {
+      await writeDebugSnapshot(page, debugPath);
+    }
+    throw new Error(
+      `Could not find message selector '${selectors.messageItem}' in thread ${threadSummary.threadId}. Wrote debug snapshot to ${debugPath}.`,
+    );
+  }
 
   return page.$$eval(selectors.messageItem, (elements, selectorMap) => {
     const messages = elements.map((element, index) => {
@@ -161,6 +302,7 @@ async function extractThread(page, threadSummary, selectors) {
     return {
       participants: Array.from(new Set(messages.flatMap((message) => [message.from, message.to, message.cc].filter(Boolean)).flatMap((value) => value.split(/[,;]+/).map((part) => part.trim()).filter(Boolean)))),
       messages,
+      source: "dom_fallback",
     };
   }, selectors);
 }
@@ -197,7 +339,7 @@ async function main() {
     try {
       await page.waitForSelector(selectors.threadListItem, { timeout: args.loginTimeoutMs });
     } catch (error) {
-      const debugPath = path.join(process.cwd(), ".local", "groups-debug.json");
+      const debugPath = makeDebugPath("groups-debug.json");
       if (!page.isClosed()) {
         await writeDebugSnapshot(page, debugPath);
       }
@@ -222,8 +364,8 @@ async function main() {
         const normalizedMessages = threadData.messages.map((message) => ({
           externalMessageId: message.externalMessageId,
           from: message.from,
-          to: splitAddressHeader(message.to),
-          cc: splitAddressHeader(message.cc),
+          to: Array.isArray(message.to) ? message.to : splitAddressHeader(message.to),
+          cc: Array.isArray(message.cc) ? message.cc : splitAddressHeader(message.cc),
           sentAt: message.sentAt,
           subject: threadSummary.subject,
           bodyText: message.bodyText,
@@ -284,5 +426,10 @@ main().catch((error) => {
   console.error(error.message || error);
   process.exit(1);
 });
+
+
+
+
+
 
 
