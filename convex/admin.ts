@@ -20,6 +20,12 @@ type TriggerCheckResult =
       siteCount: number;
       tasksCreated: number;
       tasksUpdated: number;
+    }
+  | {
+      type: "signals";
+      messageCount: number;
+      created: number;
+      skipped: number;
     };
 
 function requireApiKey(apiKey: string) {
@@ -39,7 +45,8 @@ export const triggerCheck = action({
       v.literal("scheduling"),
       v.literal("completion"),
       v.literal("tracking"),
-      v.literal("tasks")
+      v.literal("tasks"),
+      v.literal("signals")
     ),
   },
   handler: async (ctx, { apiKey, type }): Promise<TriggerCheckResult> => {
@@ -63,6 +70,13 @@ export const triggerCheck = action({
       return {
         type,
         ...(await ctx.runMutation(internal.tasks.backfillAll, {})),
+      };
+    }
+
+    if (type === "signals") {
+      return {
+        type,
+        ...(await ctx.runMutation(internal.taskSignals.extractFromArchive, {})),
       };
     }
 

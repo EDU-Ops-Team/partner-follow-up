@@ -421,6 +421,7 @@ export default defineSchema({
 
   taskSignals: defineTable({
     messageId: v.id("groupMessages"),
+    groupThreadId: v.optional(v.string()),
     siteId: v.optional(v.id("sites")),
     partnerKey: v.optional(v.string()),
     taskType: v.optional(v.union(
@@ -429,6 +430,16 @@ export default defineSchema({
       v.literal("building_inspection")
     )),
     proposedState: v.optional(v.union(
+      v.literal("not_started"),
+      v.literal("requested"),
+      v.literal("scheduled"),
+      v.literal("in_progress"),
+      v.literal("in_review"),
+      v.literal("completed"),
+      v.literal("blocked"),
+      v.literal("not_needed")
+    )),
+    currentState: v.optional(v.union(
       v.literal("not_started"),
       v.literal("requested"),
       v.literal("scheduled"),
@@ -447,8 +458,15 @@ export default defineSchema({
       v.literal("rejected"),
       v.literal("applied")
     ),
+    reviewedBy: v.optional(v.string()),
+    reviewedAt: v.optional(v.number()),
+    reviewNote: v.optional(v.string()),
+    appliedTaskId: v.optional(v.id("tasks")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
   })
     .index("by_messageId", ["messageId"])
-    .index("by_status", ["status"]),
+    .index("by_status", ["status"])
+    .index("by_siteId", ["siteId"]),
 });
 

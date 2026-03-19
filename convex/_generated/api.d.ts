@@ -38,6 +38,7 @@ import type * as lib_learningInsights from "../lib/learningInsights.js";
 import type * as lib_logger from "../lib/logger.js";
 import type * as lib_retry from "../lib/retry.js";
 import type * as lib_reviewDiff from "../lib/reviewDiff.js";
+import type * as lib_taskSignalDetection from "../lib/taskSignalDetection.js";
 import type * as lib_templates from "../lib/templates.js";
 import type * as lib_types from "../lib/types.js";
 import type * as migrateSites from "../migrateSites.js";
@@ -58,6 +59,7 @@ import type * as services_googleSheets from "../services/googleSheets.js";
 import type * as services_replyParser from "../services/replyParser.js";
 import type * as services_templateEngine from "../services/templateEngine.js";
 import type * as sites from "../sites.js";
+import type * as taskSignals from "../taskSignals.js";
 import type * as tasks from "../tasks.js";
 import type * as vendors from "../vendors.js";
 
@@ -98,6 +100,7 @@ declare const fullApi: ApiFromModules<{
   "lib/logger": typeof lib_logger;
   "lib/retry": typeof lib_retry;
   "lib/reviewDiff": typeof lib_reviewDiff;
+  "lib/taskSignalDetection": typeof lib_taskSignalDetection;
   "lib/templates": typeof lib_templates;
   "lib/types": typeof lib_types;
   migrateSites: typeof migrateSites;
@@ -118,6 +121,7 @@ declare const fullApi: ApiFromModules<{
   "services/replyParser": typeof services_replyParser;
   "services/templateEngine": typeof services_templateEngine;
   sites: typeof sites;
+  taskSignals: typeof taskSignals;
   tasks: typeof tasks;
   vendors: typeof vendors;
 }>;
