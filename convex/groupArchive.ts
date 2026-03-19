@@ -1,4 +1,4 @@
-import { action, internalMutation, query } from "./_generated/server";
+import { internalMutation, mutation, query } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 
@@ -139,7 +139,7 @@ export const ingestBatchInternal = internalMutation({
   },
 });
 
-export const ingestBatch = action({
+export const ingestBatch = mutation({
   args: {
     apiKey: v.string(),
     threads: v.array(threadValidator),

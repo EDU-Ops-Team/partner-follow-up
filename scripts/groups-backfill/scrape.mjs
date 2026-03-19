@@ -64,6 +64,38 @@ async function loadPlaywright() {
   }
 }
 
+async function writeDebugSnapshot(page, filePath) {
+  const debug = await page.evaluate(() => {
+    const links = Array.from(document.querySelectorAll("a"))
+      .slice(0, 40)
+      .map((link) => ({
+        text: link.textContent?.trim() ?? "",
+        href: link.getAttribute("href"),
+      }));
+
+    const attributes = Array.from(document.querySelectorAll("[data-thread-id], [data-message-id]"))
+      .slice(0, 40)
+      .map((element) => ({
+        tag: element.tagName,
+        dataThreadId: element.getAttribute("data-thread-id"),
+        dataMessageId: element.getAttribute("data-message-id"),
+        text: element.textContent?.trim()?.slice(0, 200) ?? "",
+      }));
+
+    return {
+      url: window.location.href,
+      title: document.title,
+      links,
+      attributes,
+      bodyPreview: document.body?.innerText?.slice(0, 4000) ?? "",
+      html: document.documentElement.outerHTML,
+    };
+  });
+
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, JSON.stringify(debug, null, 2));
+}
+
 function splitAddressHeader(value) {
   if (!value) return [];
   return value
@@ -74,16 +106,21 @@ function splitAddressHeader(value) {
 
 async function collectThreadSummaries(page, selectors) {
   return page.$$eval(selectors.threadListItem, (elements, selectorMap) => {
-    return elements.map((element, index) => {
-      const link = element.querySelector(selectorMap.threadLink);
+    const seen = new Set();
+    return elements.flatMap((element, index) => {
+      const link = element.matches(selectorMap.threadLink) ? element : element.querySelector(selectorMap.threadLink);
       const threadId = element.getAttribute("data-thread-id") ?? link?.getAttribute("href") ?? `thread-${index}`;
       const subject = element.getAttribute("data-thread-subject") ?? link?.textContent?.trim() ?? "Untitled thread";
       const href = link?.href ?? null;
-      return {
+      if (!href || seen.has(href)) {
+        return [];
+      }
+      seen.add(href);
+      return [{
         threadId,
         subject,
         href,
-      };
+      }];
     });
   }, selectors);
 }
@@ -129,7 +166,7 @@ async function extractThread(page, threadSummary, selectors) {
 }
 
 async function ingestBatch(client, env, batch, checkpointKey) {
-  return client.action(api.groupArchive.ingestBatch, {
+  return client.mutation(api.groupArchive.ingestBatch, {
     apiKey: env.ADMIN_API_KEY,
     threads: batch,
     scrapedAt: Date.now(),
@@ -157,7 +194,15 @@ async function main() {
   try {
     await page.goto(args.groupUrl, { waitUntil: "domcontentloaded" });
     console.log("Waiting for Google Groups thread list. If login is required, complete it in the browser window.");
-    await page.waitForSelector(selectors.threadListItem, { timeout: args.loginTimeoutMs });
+    try {
+      await page.waitForSelector(selectors.threadListItem, { timeout: args.loginTimeoutMs });
+    } catch (error) {
+      const debugPath = path.join(process.cwd(), ".local", "groups-debug.json");
+      if (!page.isClosed()) {
+        await writeDebugSnapshot(page, debugPath);
+      }
+      throw new Error(`Could not find thread list selector '${selectors.threadListItem}'. Wrote debug snapshot to ${debugPath}.`);
+    }
 
     let totalProcessed = 0;
     let hasNextPage = true;
@@ -239,3 +284,5 @@ main().catch((error) => {
   console.error(error.message || error);
   process.exit(1);
 });
+
+
