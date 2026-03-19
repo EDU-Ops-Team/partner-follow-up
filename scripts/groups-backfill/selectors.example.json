@@ -1,0 +1,12 @@
+{
+  "threadListItem": "[data-thread-id]",
+  "threadLink": "a[href*='/g/']",
+  "messageItem": "[data-message-id]",
+  "nextPageButton": "button[aria-label='Next page']",
+  "messageBody": "[data-message-body]",
+  "messageFrom": "[data-message-from]",
+  "messageTo": "[data-message-to]",
+  "messageCc": "[data-message-cc]",
+  "messageTimestamp": "[data-message-sent-at]",
+  "attachmentLink": "a[href*='attachment']"
+}

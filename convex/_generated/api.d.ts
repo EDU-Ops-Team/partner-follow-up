@@ -27,6 +27,7 @@ import type * as emailClassifications from "../emailClassifications.js";
 import type * as emailThreads from "../emailThreads.js";
 import type * as executeDecisions from "../executeDecisions.js";
 import type * as gmailSync from "../gmailSync.js";
+import type * as groupArchive from "../groupArchive.js";
 import type * as holidays from "../holidays.js";
 import type * as jurisdictions from "../jurisdictions.js";
 import type * as lib_addressNormalizer from "../lib/addressNormalizer.js";
@@ -86,6 +87,7 @@ declare const fullApi: ApiFromModules<{
   emailThreads: typeof emailThreads;
   executeDecisions: typeof executeDecisions;
   gmailSync: typeof gmailSync;
+  groupArchive: typeof groupArchive;
   holidays: typeof holidays;
   jurisdictions: typeof jurisdictions;
   "lib/addressNormalizer": typeof lib_addressNormalizer;
