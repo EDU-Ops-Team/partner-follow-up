@@ -43,6 +43,38 @@ async function findTaskBySiteAndType(ctx: any, siteId: string, taskType: TaskTyp
   return tasks.find((task: any) => task.taskType === taskType) ?? null;
 }
 
+async function supersedePendingSignalsForTask(
+  ctx: any,
+  siteId: string,
+  taskType: TaskType,
+  keepSignalId: string,
+  reviewer: string,
+  reviewedAt: number,
+) {
+  const signals = await ctx.db
+    .query("taskSignals")
+    .withIndex("by_siteId", (q: any) => q.eq("siteId", siteId as never))
+    .collect();
+
+  for (const signal of signals) {
+    if (
+      signal._id === keepSignalId ||
+      signal.status !== "pending" ||
+      signal.taskType !== taskType
+    ) {
+      continue;
+    }
+
+    await ctx.db.patch(signal._id, {
+      status: "rejected",
+      reviewedBy: reviewer,
+      reviewedAt,
+      reviewNote: "Superseded by a newer applied signal for the same task.",
+      updatedAt: reviewedAt,
+    });
+  }
+}
+
 export const extractFromArchive = internalMutation({
   args: {
     limit: v.optional(v.number()),
@@ -219,6 +251,9 @@ export const apply = mutation({
     if (!signal) {
       throw new Error("Signal not found");
     }
+    if (signal.status !== "pending") {
+      throw new Error(`Signal is already ${signal.status}`);
+    }
 
     const resolvedSiteId = siteId ?? signal.siteId;
     const resolvedTaskType = taskType ?? signal.taskType;
@@ -234,7 +269,9 @@ export const apply = mutation({
     }
 
     if (isBackwardTransition(task.state, resolvedState) && !note?.trim()) {
-      throw new Error("Backward transitions require a note");
+      throw new Error(
+        `This signal is older than the current task state (${task.state} -> ${resolvedState}). Reject it if stale, or add a note to allow a backward transition.`
+      );
     }
 
     const now = Date.now();
@@ -274,6 +311,15 @@ export const apply = mutation({
       appliedTaskId: task._id,
       updatedAt: now,
     });
+
+    await supersedePendingSignalsForTask(
+      ctx,
+      String(resolvedSiteId),
+      resolvedTaskType,
+      String(id),
+      reviewerName ?? reviewerEmail,
+      now,
+    );
 
     return { ok: true };
   },

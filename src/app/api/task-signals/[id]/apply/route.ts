@@ -20,16 +20,21 @@ export async function POST(
     return NextResponse.json({ error: "Missing reviewerEmail" }, { status: 400 });
   }
 
-  await getServerConvex().mutation(api.taskSignals.apply, {
-    apiKey: getServerApiKey(),
-    id: id as never,
-    reviewerEmail: body.reviewerEmail,
-    reviewerName: body.reviewerName,
-    siteId: body.siteId as never,
-    taskType: body.taskType,
-    proposedState: body.proposedState,
-    note: body.note,
-  });
+  try {
+    await getServerConvex().mutation(api.taskSignals.apply, {
+      apiKey: getServerApiKey(),
+      id: id as never,
+      reviewerEmail: body.reviewerEmail,
+      reviewerName: body.reviewerName,
+      siteId: body.siteId as never,
+      taskType: body.taskType,
+      proposedState: body.proposedState,
+      note: body.note,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to apply signal";
+    return NextResponse.json({ error: message }, { status: 400 });
+  }
 
   return NextResponse.json({ ok: true });
 }
