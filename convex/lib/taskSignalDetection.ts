@@ -32,6 +32,18 @@ export type DetectedTaskSignal = {
   detector: string;
 };
 
+export type TaskSignalExplanation = {
+  siteId?: string;
+  taskType?: TaskType;
+  partnerKey?: string;
+  proposedState?: TaskState;
+  confidence: number;
+  evidenceSnippet?: string;
+  detector: string;
+  outcome: "signal" | "no_task_type" | "no_site_match" | "no_state";
+  reason: string;
+};
+
 const DETECTOR_NAME = "group_backfill_heuristic_v1";
 const EMAIL_REGEX = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
 const ADDRESS_REGEX = /(\d+\s+[A-Za-z0-9.'\-\s]+(?:street|st|avenue|ave|boulevard|blvd|drive|dr|lane|ln|road|rd|court|ct|place|pl|circle|cir|way|terrace|ter|highway|hwy|parkway|pkwy)(?:[^\n,;]*)?(?:,\s*[^\n,;]+){0,3})/gi;
@@ -172,24 +184,47 @@ function buildEvidenceSnippet(message: SignalMessageCandidate): string | undefin
   return combined.slice(0, 280);
 }
 
-export function detectTaskSignalFromMessage(
+export function explainTaskSignalDetection(
   sites: SignalSiteCandidate[],
   message: SignalMessageCandidate,
-): DetectedTaskSignal | null {
+): TaskSignalExplanation {
   const combinedText = `${message.subject}\n${message.bodyText}`;
   const taskType = detectTaskType(combinedText);
   if (!taskType) {
-    return null;
+    return {
+      confidence: 0,
+      detector: DETECTOR_NAME,
+      evidenceSnippet: buildEvidenceSnippet(message),
+      outcome: "no_task_type",
+      reason: "No supported task type keywords were detected.",
+    };
   }
 
   const siteMatch = matchSite(sites, message, combinedText);
   if (!siteMatch.siteId) {
-    return null;
+    return {
+      taskType,
+      partnerKey: TASK_PARTNER_KEYS[taskType],
+      confidence: siteMatch.confidence,
+      detector: DETECTOR_NAME,
+      evidenceSnippet: buildEvidenceSnippet(message),
+      outcome: "no_site_match",
+      reason: "A task type was detected, but the message did not match a tracked site confidently enough.",
+    };
   }
 
   const proposedState = detectTaskState(combinedText, taskType, (message.attachments?.length ?? 0) > 0);
   if (!proposedState || !TASK_STATES.includes(proposedState)) {
-    return null;
+    return {
+      siteId: siteMatch.siteId,
+      taskType,
+      partnerKey: TASK_PARTNER_KEYS[taskType],
+      confidence: Math.min(0.8, 0.2 + siteMatch.confidence),
+      detector: DETECTOR_NAME,
+      evidenceSnippet: buildEvidenceSnippet(message),
+      outcome: "no_state",
+      reason: "The task and site were matched, but no supported state transition was detected.",
+    };
   }
 
   const confidence = Math.min(
@@ -208,6 +243,28 @@ export function detectTaskSignalFromMessage(
     confidence,
     evidenceSnippet: buildEvidenceSnippet(message),
     detector: DETECTOR_NAME,
+    outcome: "signal",
+    reason: "Task type, site, and state transition were all detected.",
+  };
+}
+
+export function detectTaskSignalFromMessage(
+  sites: SignalSiteCandidate[],
+  message: SignalMessageCandidate,
+): DetectedTaskSignal | null {
+  const explanation = explainTaskSignalDetection(sites, message);
+  if (explanation.outcome !== "signal") {
+    return null;
+  }
+
+  return {
+    siteId: explanation.siteId,
+    taskType: explanation.taskType,
+    partnerKey: explanation.partnerKey,
+    proposedState: explanation.proposedState,
+    confidence: explanation.confidence,
+    evidenceSnippet: explanation.evidenceSnippet,
+    detector: explanation.detector,
   };
 }
 

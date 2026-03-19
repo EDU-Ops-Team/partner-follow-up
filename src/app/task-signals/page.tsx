@@ -28,6 +28,35 @@ type SignalListItem = {
   } | null;
 };
 
+type SignalDiagnosticItem = {
+  message: {
+    _id: string;
+    subject: string;
+    from: string;
+    sentAt: number;
+    bodyPreview: string;
+    groupThreadId: string;
+  };
+  existingSignal: {
+    _id: string;
+    status: "pending" | "approved" | "rejected" | "applied";
+    taskType?: "sir" | "lidar_scan" | "building_inspection";
+    proposedState?: "not_started" | "requested" | "scheduled" | "in_progress" | "in_review" | "completed" | "blocked" | "not_needed";
+    currentState?: "not_started" | "requested" | "scheduled" | "in_progress" | "in_review" | "completed" | "blocked" | "not_needed";
+    confidence: number;
+  } | null;
+  diagnostic: {
+    outcome: "signal" | "no_task_type" | "no_site_match" | "no_state";
+    reason: string;
+    taskType?: "sir" | "lidar_scan" | "building_inspection";
+    proposedState?: "not_started" | "requested" | "scheduled" | "in_progress" | "in_review" | "completed" | "blocked" | "not_needed";
+    confidence: number;
+    matchedSiteId?: string;
+    matchedSiteLabel?: string | null;
+    evidenceSnippet?: string;
+  };
+};
+
 function timeAgo(ms: number): string {
   const seconds = Math.floor((Date.now() - ms) / 1000);
   if (seconds < 60) return "just now";
@@ -54,21 +83,43 @@ function confidenceBadge(confidence: number) {
   return <span className={`text-xs font-mono ${color}`}>{pct}%</span>;
 }
 
+function diagnosticOutcomeBadge(outcome: SignalDiagnosticItem["diagnostic"]["outcome"]) {
+  const colors: Record<SignalDiagnosticItem["diagnostic"]["outcome"], string> = {
+    signal: "bg-green-100 text-green-800",
+    no_task_type: "bg-gray-100 text-gray-700",
+    no_site_match: "bg-amber-100 text-amber-800",
+    no_state: "bg-sky-100 text-sky-800",
+  };
+
+  return (
+    <span className={`px-2 py-0.5 rounded text-xs font-medium ${colors[outcome]}`}>
+      {outcome.replace(/_/g, " ")}
+    </span>
+  );
+}
+
 export default function TaskSignalsPage() {
   const { data: session } = useSession();
   const role = (session?.user as { role?: "admin" | "reviewer" } | undefined)?.role;
   const isAdmin = role === "admin";
 
   const [signals, setSignals] = useState<SignalListItem[] | null>(null);
+  const [diagnostics, setDiagnostics] = useState<SignalDiagnosticItem[] | null>(null);
   const [running, setRunning] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function load() {
-    const res = await fetch("/api/task-signals?status=pending&limit=200", { cache: "no-store" });
-    if (!res.ok) throw new Error(`Request failed (${res.status})`);
-    const payload = (await res.json()) as { signals: SignalListItem[] };
-    setSignals(payload.signals);
+    const [signalsRes, diagnosticsRes] = await Promise.all([
+      fetch("/api/task-signals?status=pending&limit=200", { cache: "no-store" }),
+      fetch("/api/task-signals/diagnostics?limit=40", { cache: "no-store" }),
+    ]);
+    if (!signalsRes.ok) throw new Error(`Request failed (${signalsRes.status})`);
+    if (!diagnosticsRes.ok) throw new Error(`Diagnostics request failed (${diagnosticsRes.status})`);
+    const signalsPayload = (await signalsRes.json()) as { signals: SignalListItem[] };
+    const diagnosticsPayload = (await diagnosticsRes.json()) as { diagnostics: SignalDiagnosticItem[] };
+    setSignals(signalsPayload.signals);
+    setDiagnostics(diagnosticsPayload.diagnostics);
   }
 
   useEffect(() => {
@@ -108,9 +159,12 @@ export default function TaskSignalsPage() {
     }
   }
 
-  if (signals === null && !error) {
+  if ((signals === null || diagnostics === null) && !error) {
     return <main className="max-w-7xl mx-auto px-4 py-8"><div className="text-gray-400 py-8 text-center">Loading task signals...</div></main>;
   }
+
+  const detectedCount = (diagnostics ?? []).filter((item) => Boolean(item.existingSignal)).length;
+  const undetectedCount = (diagnostics ?? []).filter((item) => !item.existingSignal).length;
 
   return (
     <main className="max-w-7xl mx-auto px-4 py-8 space-y-6">
@@ -174,6 +228,84 @@ export default function TaskSignalsPage() {
           ))}
         </div>
       )}
+
+      <section className="space-y-3">
+        <div>
+          <h2 className="text-sm font-semibold text-gray-900">Archive Diagnostics</h2>
+          <p className="text-sm text-gray-500 mt-1">
+            Review recent archived messages to see whether they produced a signal and why undetected messages were skipped.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className="rounded-lg border border-gray-200 bg-white p-4">
+            <div className="text-xs uppercase tracking-wide text-gray-500">Messages Shown</div>
+            <div className="mt-2 text-2xl font-semibold text-gray-900">{(diagnostics ?? []).length}</div>
+          </div>
+          <div className="rounded-lg border border-gray-200 bg-white p-4">
+            <div className="text-xs uppercase tracking-wide text-gray-500">Detected</div>
+            <div className="mt-2 text-2xl font-semibold text-gray-900">{detectedCount}</div>
+          </div>
+          <div className="rounded-lg border border-gray-200 bg-white p-4">
+            <div className="text-xs uppercase tracking-wide text-gray-500">Undetected</div>
+            <div className="mt-2 text-2xl font-semibold text-gray-900">{undetectedCount}</div>
+          </div>
+        </div>
+
+        <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead className="bg-gray-50 text-gray-500">
+                <tr>
+                  <th className="px-4 py-3 text-left font-medium">Message</th>
+                  <th className="px-4 py-3 text-left font-medium">Detection</th>
+                  <th className="px-4 py-3 text-left font-medium">Site Guess</th>
+                  <th className="px-4 py-3 text-left font-medium">Task Guess</th>
+                  <th className="px-4 py-3 text-left font-medium">State Guess</th>
+                  <th className="px-4 py-3 text-left font-medium">Why</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(diagnostics ?? []).map((item) => (
+                  <tr key={item.message._id} className="border-t border-gray-100 align-top">
+                    <td className="px-4 py-3">
+                      <div className="font-medium text-gray-900">{item.message.subject}</div>
+                      <div className="text-xs text-gray-500 mt-1">From {item.message.from}</div>
+                      <div className="text-xs text-gray-400 mt-1">{timeAgo(item.message.sentAt)}</div>
+                      <div className="text-xs text-gray-500 mt-2 max-w-md line-clamp-4">{item.message.bodyPreview}</div>
+                    </td>
+                    <td className="px-4 py-3">
+                      {item.existingSignal ? (
+                        <div className="space-y-1">
+                          {statusBadge(item.existingSignal.status)}
+                          <div>{confidenceBadge(item.existingSignal.confidence)}</div>
+                        </div>
+                      ) : (
+                        diagnosticOutcomeBadge(item.diagnostic.outcome)
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-gray-700">
+                      {item.diagnostic.matchedSiteLabel ?? <span className="text-gray-400">No confident match</span>}
+                    </td>
+                    <td className="px-4 py-3 text-gray-700">
+                      {item.diagnostic.taskType ? formatTaskTypeLabel(item.diagnostic.taskType) : <span className="text-gray-400">No task type</span>}
+                    </td>
+                    <td className="px-4 py-3 text-gray-700">
+                      {item.diagnostic.proposedState ? formatTaskStateLabel(item.diagnostic.proposedState) : <span className="text-gray-400">No state</span>}
+                    </td>
+                    <td className="px-4 py-3 text-gray-700">
+                      <div className="max-w-sm">{item.diagnostic.reason}</div>
+                      {item.diagnostic.evidenceSnippet && (
+                        <div className="mt-2 text-xs text-gray-400 line-clamp-3">{item.diagnostic.evidenceSnippet}</div>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
     </main>
   );
 }

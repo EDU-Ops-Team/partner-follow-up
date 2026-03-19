@@ -1,7 +1,7 @@
 import { internalMutation, mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { getTaskProgressValue, TASK_STATES, type TaskState, type TaskType } from "../shared/taskModel";
-import { detectTaskSignalFromMessage } from "./lib/taskSignalDetection";
+import { detectTaskSignalFromMessage, explainTaskSignalDetection } from "./lib/taskSignalDetection";
 
 const taskStateValidator = v.union(
   v.literal("not_started"),
@@ -230,6 +230,83 @@ export const get = query({
         state: task.state,
       })),
     };
+  },
+});
+
+export const diagnostics = query({
+  args: {
+    apiKey: v.string(),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, { apiKey, limit }) => {
+    requireApiKey(apiKey);
+
+    const [sites, messages, signals] = await Promise.all([
+      ctx.db.query("sites").collect(),
+      ctx.db.query("groupMessages").collect(),
+      ctx.db.query("taskSignals").collect(),
+    ]);
+
+    const signalByMessageId = new Map(
+      signals.map((signal) => [String(signal.messageId), signal])
+    );
+    const siteLabelById = new Map(
+      sites.map((site) => [String(site._id), site.fullAddress ?? site.siteAddress])
+    );
+    const siteCandidates = sites.map((site) => ({
+      _id: String(site._id),
+      siteAddress: site.siteAddress,
+      fullAddress: site.fullAddress,
+      responsiblePartyEmail: site.responsiblePartyEmail,
+      inspectionContactEmail: site.inspectionContactEmail,
+    }));
+
+    return [...messages]
+      .sort((a, b) => b.sentAt - a.sentAt)
+      .slice(0, limit ?? messages.length)
+      .map((message) => {
+        const explanation = explainTaskSignalDetection(siteCandidates, {
+          subject: message.subject,
+          bodyText: message.bodyText,
+          from: message.from,
+          to: message.to,
+          cc: message.cc,
+          attachments: message.attachments,
+        });
+        const existingSignal = signalByMessageId.get(String(message._id)) ?? null;
+        const matchedSiteId = existingSignal?.siteId ? String(existingSignal.siteId) : explanation.siteId;
+
+        return {
+          message: {
+            _id: message._id,
+            subject: message.subject,
+            from: message.from,
+            sentAt: message.sentAt,
+            bodyPreview: message.bodyText.slice(0, 240),
+            groupThreadId: message.groupThreadId,
+          },
+          existingSignal: existingSignal
+            ? {
+                _id: existingSignal._id,
+                status: existingSignal.status,
+                taskType: existingSignal.taskType,
+                proposedState: existingSignal.proposedState,
+                confidence: existingSignal.confidence,
+                currentState: existingSignal.currentState,
+              }
+            : null,
+          diagnostic: {
+            outcome: explanation.outcome,
+            reason: explanation.reason,
+            taskType: explanation.taskType,
+            proposedState: explanation.proposedState,
+            confidence: explanation.confidence,
+            matchedSiteId,
+            matchedSiteLabel: matchedSiteId ? siteLabelById.get(matchedSiteId) ?? null : null,
+            evidenceSnippet: explanation.evidenceSnippet,
+          },
+        };
+      });
   },
 });
 
