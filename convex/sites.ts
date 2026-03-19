@@ -480,6 +480,15 @@ export const adminUpdate = mutation({
         v.literal("inspection"),
         v.literal("both")
       )),
+      recordDisposition: v.optional(v.union(
+        v.literal("unreviewed"),
+        v.literal("confirmed"),
+        v.literal("needs_review"),
+        v.literal("invalid")
+      )),
+      recordDispositionNote: v.optional(v.string()),
+      recordDispositionBy: v.optional(v.string()),
+      recordDispositionAt: v.optional(v.number()),
     }),
   },
   handler: async (ctx, { id, updates }) => {

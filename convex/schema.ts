@@ -88,6 +88,15 @@ export default defineSchema({
     assignedDRI: v.optional(v.string()),
     notes: v.optional(v.string()),
     tags: v.optional(v.array(v.string())),
+    recordDisposition: v.optional(v.union(
+      v.literal("unreviewed"),
+      v.literal("confirmed"),
+      v.literal("needs_review"),
+      v.literal("invalid")
+    )),
+    recordDispositionNote: v.optional(v.string()),
+    recordDispositionBy: v.optional(v.string()),
+    recordDispositionAt: v.optional(v.number()),
   })
     .index("by_phase", ["phase"])
     .index("by_triggerEmailId", ["triggerEmailId"])

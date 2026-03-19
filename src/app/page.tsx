@@ -8,6 +8,8 @@ import type { Doc, Id } from "convex/_generated/dataModel";
 import { deriveTrackingState, formatTrackingStateLabel, isLidarComplete, type TrackingScope, type TrackingStatus } from "../../shared/siteTracking";
 import { formatTaskStateLabel, formatTaskTypeLabel, type TaskState, type TaskType } from "../../shared/taskModel";
 
+type SiteDisposition = "unreviewed" | "confirmed" | "needs_review" | "invalid";
+
 // ── Badges ──
 
 
@@ -124,6 +126,27 @@ function draftStatusBadge(status: string) {
   return (
     <span className={`inline-block px-2 py-1 rounded text-xs font-medium ${colors[status] ?? "bg-gray-100"}`}>
       {status.replace(/_/g, " ")}
+    </span>
+  );
+}
+
+function dispositionBadge(disposition?: SiteDisposition) {
+  const value = disposition ?? "unreviewed";
+  const colors: Record<SiteDisposition, string> = {
+    unreviewed: "bg-gray-100 text-gray-600",
+    confirmed: "bg-emerald-100 text-emerald-800",
+    needs_review: "bg-amber-100 text-amber-800",
+    invalid: "bg-rose-100 text-rose-800",
+  };
+  const labels: Record<SiteDisposition, string> = {
+    unreviewed: "Unreviewed",
+    confirmed: "Confirmed",
+    needs_review: "Needs review",
+    invalid: "Invalid",
+  };
+  return (
+    <span className={`inline-block px-2 py-1 rounded text-xs font-medium ${colors[value]}`}>
+      {labels[value]}
     </span>
   );
 }
@@ -331,6 +354,10 @@ function SiteCard({ site }: { site: {
   trackingUpdatedAt?: number;
   lidarLastCheckedAt?: number;
   inspectionLastCheckedAt?: number;
+  recordDisposition?: SiteDisposition;
+  recordDispositionNote?: string;
+  recordDispositionBy?: string;
+  recordDispositionAt?: number;
   tasks: Array<{
     _id: Id<"tasks">;
     taskType: TaskType;
@@ -349,7 +376,14 @@ function SiteCard({ site }: { site: {
     scopeChanged: boolean;
   };
 } }) {
+  const { data: session } = useSession();
+  const canDisposition = Boolean((session?.user as { email?: string } | undefined)?.email);
   const [expanded, setExpanded] = useState(false);
+  const [disposition, setDisposition] = useState<SiteDisposition>(site.recordDisposition ?? "unreviewed");
+  const [note, setNote] = useState(site.recordDispositionNote ?? "");
+  const [savingDisposition, setSavingDisposition] = useState(false);
+  const [dispositionMessage, setDispositionMessage] = useState<string | null>(null);
+  const [dispositionError, setDispositionError] = useState<string | null>(null);
   const trackingState = site.trackingStatus && site.trackingScope
     ? { trackingStatus: site.trackingStatus, trackingScope: site.trackingScope }
     : deriveTrackingState({
@@ -360,6 +394,28 @@ function SiteCard({ site }: { site: {
         reportReceived: site.reportReceived,
       });
   const lidarComplete = isLidarComplete(site.lidarJobStatus);
+
+  async function saveDisposition() {
+    setSavingDisposition(true);
+    setDispositionMessage(null);
+    setDispositionError(null);
+    try {
+      const res = await fetch(`/api/dashboard/sites/${encodeURIComponent(String(site._id))}/disposition`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ disposition, note }),
+      });
+      const payload = await res.json() as { error?: string };
+      if (!res.ok) {
+        throw new Error(payload.error ?? `Request failed (${res.status})`);
+      }
+      setDispositionMessage("Disposition saved.");
+    } catch (err) {
+      setDispositionError(err instanceof Error ? err.message : "Failed to save disposition");
+    } finally {
+      setSavingDisposition(false);
+    }
+  }
 
   return (
     <div className="bg-white border border-gray-200 rounded-lg hover:shadow-sm">
@@ -379,11 +435,12 @@ function SiteCard({ site }: { site: {
               <span className="text-gray-400 text-sm">{expanded ? "\u25B2" : "\u25BC"}</span>
             </div>
             <ProgressBar percentComplete={site.progress.percentComplete} />
-            <div className="mt-2 flex flex-wrap gap-2 text-xs text-gray-500">
-              <span>{site.progress.completedTaskCount}/{site.progress.activeTaskCount} tasks complete</span>
-              {site.progress.blockedTaskCount > 0 && <span>{site.progress.blockedTaskCount} blocked</span>}
-              <span>{formatTrackingStateLabel(trackingState.trackingStatus, trackingState.trackingScope)}</span>
-            </div>
+              <div className="mt-2 flex flex-wrap gap-2 text-xs text-gray-500">
+                <span>{site.progress.completedTaskCount}/{site.progress.activeTaskCount} tasks complete</span>
+                {site.progress.blockedTaskCount > 0 && <span>{site.progress.blockedTaskCount} blocked</span>}
+                <span>{formatTrackingStateLabel(trackingState.trackingStatus, trackingState.trackingScope)}</span>
+                {dispositionBadge(site.recordDisposition)}
+              </div>
           </div>
           <div className="text-sm text-gray-500">
             {site.resolved ? "Resolved" : `Next check: ${formatDate(site.nextCheckDate)}`}
@@ -498,16 +555,83 @@ function SiteCard({ site }: { site: {
                 <span className="text-gray-500">Triggered</span>
                 <span className="text-gray-800">{formatDate(site.triggerDate)}</span>
               </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-500">Reminders</span>
-                  <span className="text-gray-800">{site.schedulingReminderCount + site.reportReminderCount}</span>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Record Review</span>
+                <span className="text-gray-800">{dispositionBadge(site.recordDisposition)}</span>
+              </div>
+              {site.recordDispositionAt && (
+                <div className="flex justify-between gap-3">
+                  <span className="text-gray-500">Reviewed</span>
+                  <span className="text-right text-gray-800">
+                    {formatDatetime(site.recordDispositionAt)}{site.recordDispositionBy ? ` by ${site.recordDispositionBy}` : ""}
+                  </span>
                 </div>
+              )}
+              {site.recordDispositionNote && (
+                <div className="flex justify-between gap-3">
+                  <span className="text-gray-500">Review Note</span>
+                  <span className="text-right text-gray-800">{site.recordDispositionNote}</span>
+                </div>
+              )}
+              <div className="flex justify-between">
+                <span className="text-gray-500">Reminders</span>
+                <span className="text-gray-800">{site.schedulingReminderCount + site.reportReminderCount}</span>
+              </div>
             </div>
           </div>
         </div>
       </button>
       {expanded && (
         <div className="px-5 pb-5">
+          {canDisposition && (
+            <div className="mb-4 rounded-lg border border-gray-200 bg-gray-50 p-4">
+              <div className="flex flex-col gap-3">
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-900">Record Disposition</h3>
+                  <p className="text-sm text-gray-500 mt-1">
+                    Mark whether this site record looks correctly created from the email thread.
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {(["unreviewed", "confirmed", "needs_review", "invalid"] as SiteDisposition[]).map((option) => (
+                    <button
+                      key={option}
+                      onClick={() => {
+                        setDisposition(option);
+                        setDispositionMessage(null);
+                        setDispositionError(null);
+                      }}
+                      className={`rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                        disposition === option
+                          ? "bg-gray-900 text-white"
+                          : "bg-white text-gray-700 ring-1 ring-gray-200 hover:bg-gray-100"
+                      }`}
+                    >
+                      {option === "needs_review" ? "Needs review" : option.charAt(0).toUpperCase() + option.slice(1)}
+                    </button>
+                  ))}
+                </div>
+                <textarea
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                  rows={3}
+                  placeholder="Optional note about why this record is correct, suspect, or invalid."
+                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-gray-500"
+                />
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={saveDisposition}
+                    disabled={savingDisposition}
+                    className="rounded-md bg-gray-900 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-black disabled:opacity-50"
+                  >
+                    {savingDisposition ? "Saving..." : "Save Disposition"}
+                  </button>
+                  {dispositionMessage && <span className="text-sm text-green-700">{dispositionMessage}</span>}
+                  {dispositionError && <span className="text-sm text-red-600">{dispositionError}</span>}
+                </div>
+              </div>
+            </div>
+          )}
           <SiteExpansion siteId={site._id} />
         </div>
       )}
