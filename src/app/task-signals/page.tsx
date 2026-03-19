@@ -106,6 +106,7 @@ export default function TaskSignalsPage() {
   const [signals, setSignals] = useState<SignalListItem[] | null>(null);
   const [diagnostics, setDiagnostics] = useState<SignalDiagnosticItem[] | null>(null);
   const [running, setRunning] = useState(false);
+  const [discovering, setDiscovering] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -159,6 +160,46 @@ export default function TaskSignalsPage() {
     }
   }
 
+  async function runDiscovery() {
+    setDiscovering(true);
+    setMessage(null);
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/trigger-check", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "discover_sites" }),
+      });
+      const payload = (await res.json()) as {
+        error?: string;
+        result?: {
+          discovery?: {
+            reviewed?: number;
+            eligible?: number;
+            created?: number;
+            matchedExisting?: number;
+            noAddress?: number;
+          };
+          signals?: {
+            created?: number;
+            messageCount?: number;
+          };
+        };
+      };
+      if (!res.ok) {
+        throw new Error(payload.error ?? `Request failed (${res.status})`);
+      }
+      setMessage(
+        `Site discovery ran. ${payload.result?.discovery?.created ?? 0} new site(s) added from ${payload.result?.discovery?.eligible ?? 0} candidate message(s), then ${payload.result?.signals?.created ?? 0} signal(s) were created.`
+      );
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to discover sites");
+    } finally {
+      setDiscovering(false);
+    }
+  }
+
   if ((signals === null || diagnostics === null) && !error) {
     return <main className="max-w-7xl mx-auto px-4 py-8"><div className="text-gray-400 py-8 text-center">Loading task signals...</div></main>;
   }
@@ -174,13 +215,22 @@ export default function TaskSignalsPage() {
           <p className="text-sm text-gray-500 mt-1">Review Google Groups backfill signals before they update live task history.</p>
         </div>
         {isAdmin && (
-          <button
-            onClick={runExtraction}
-            disabled={running}
-            className="rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
-          >
-            {running ? "Extracting..." : "Extract Signals"}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={runDiscovery}
+              disabled={discovering || running}
+              className="rounded-md bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-700 disabled:opacity-50"
+            >
+              {discovering ? "Discovering..." : "Discover Sites + Re-run Signals"}
+            </button>
+            <button
+              onClick={runExtraction}
+              disabled={running || discovering}
+              className="rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
+            >
+              {running ? "Extracting..." : "Extract Signals"}
+            </button>
+          </div>
         )}
       </div>
 

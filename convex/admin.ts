@@ -26,6 +26,21 @@ type TriggerCheckResult =
       messageCount: number;
       created: number;
       skipped: number;
+    }
+  | {
+      type: "discover_sites";
+      discovery: {
+        reviewed: number;
+        eligible: number;
+        created: number;
+        matchedExisting: number;
+        noAddress: number;
+      };
+      signals: {
+        messageCount: number;
+        created: number;
+        skipped: number;
+      };
     };
 
 function requireApiKey(apiKey: string) {
@@ -46,7 +61,8 @@ export const triggerCheck = action({
       v.literal("completion"),
       v.literal("tracking"),
       v.literal("tasks"),
-      v.literal("signals")
+      v.literal("signals"),
+      v.literal("discover_sites")
     ),
   },
   handler: async (ctx, { apiKey, type }): Promise<TriggerCheckResult> => {
@@ -77,6 +93,16 @@ export const triggerCheck = action({
       return {
         type,
         ...(await ctx.runMutation(internal.taskSignals.extractFromArchive, {})),
+      };
+    }
+
+    if (type === "discover_sites") {
+      const discovery = await ctx.runMutation(internal.sites.discoverFromArchive, {});
+      const signals = await ctx.runMutation(internal.taskSignals.extractFromArchive, {});
+      return {
+        type,
+        discovery,
+        signals,
       };
     }
 

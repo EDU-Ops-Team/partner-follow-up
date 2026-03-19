@@ -1,8 +1,35 @@
 import { query, mutation, internalQuery, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
-import { similarity } from "./lib/addressNormalizer";
+import { normalizeAddress, similarity } from "./lib/addressNormalizer";
 import { ADDRESS_MATCH_THRESHOLD } from "./lib/constants";
 import { PHASE_ONE_TASK_TEMPLATES, calculateProgress, getTaskProgressValue } from "../shared/taskModel";
+import { extractSiteInfo } from "./services/emailParser";
+import type { ParsedEmail } from "./lib/types";
+import { explainTaskSignalDetection } from "./lib/taskSignalDetection";
+
+function toParsedEmail(message: {
+  _id: string;
+  externalMessageId: string;
+  groupThreadId: string;
+  from: string;
+  to: string[];
+  cc: string[];
+  subject: string;
+  bodyText: string;
+  sentAt: number;
+}): ParsedEmail {
+  return {
+    messageId: message.externalMessageId || String(message._id),
+    threadId: message.groupThreadId,
+    from: message.from,
+    to: message.to,
+    cc: message.cc,
+    subject: message.subject,
+    body: message.bodyText,
+    date: new Date(message.sentAt),
+    attachments: [],
+  };
+}
 
 async function seedPhaseOneTasks(
   ctx: { db: { insert: Function; query: Function } },
@@ -43,6 +70,82 @@ async function seedPhaseOneTasks(
       createdAt,
     });
   }
+}
+
+async function findOrCreateSiteByAddress(
+  ctx: { db: { query: Function; patch: Function; insert: Function } },
+  args: {
+    siteAddress: string;
+    normalizedAddress: string;
+    responsiblePartyEmail: string;
+    responsiblePartyName?: string;
+    triggerEmail: {
+      emailId: string;
+      threadId?: string;
+      messageId?: string;
+      receivedAt: number;
+    };
+    nextCheckDate: number;
+  },
+) {
+  const exact = await ctx.db
+    .query("sites")
+    .withIndex("by_normalizedAddress", (q: any) => q.eq("normalizedAddress", args.normalizedAddress))
+    .first();
+
+  if (exact) {
+    const triggers = exact.triggerEmails ?? [];
+    if (!triggers.some((t: any) => t.emailId === args.triggerEmail.emailId)) {
+      triggers.push(args.triggerEmail);
+    }
+    await ctx.db.patch(exact._id, { triggerEmails: triggers });
+    return { siteId: exact._id, created: false };
+  }
+
+  const allSites = await ctx.db.query("sites").collect();
+  for (const site of allSites) {
+    const a = args.normalizedAddress;
+    const b = site.normalizedAddress;
+    const isPrefix = a.startsWith(b) || b.startsWith(a);
+    const isFuzzy = !isPrefix && similarity(a, b) >= ADDRESS_MATCH_THRESHOLD;
+    if (isPrefix || isFuzzy) {
+      const triggers = site.triggerEmails ?? [];
+      if (!triggers.some((t: any) => t.emailId === args.triggerEmail.emailId)) {
+        triggers.push(args.triggerEmail);
+      }
+      const updates: Record<string, unknown> = { triggerEmails: triggers };
+      if (args.siteAddress.length > (site.siteAddress?.length ?? 0) && !site.fullAddress) {
+        updates.siteAddress = args.siteAddress;
+        updates.normalizedAddress = args.normalizedAddress;
+      }
+      await ctx.db.patch(site._id, updates);
+      return { siteId: site._id, created: false };
+    }
+  }
+
+  const siteId = await ctx.db.insert("sites", {
+    siteAddress: args.siteAddress,
+    normalizedAddress: args.normalizedAddress,
+    responsiblePartyEmail: args.responsiblePartyEmail,
+    responsiblePartyName: args.responsiblePartyName,
+    triggerEmails: [args.triggerEmail],
+    triggerDate: args.triggerEmail.receivedAt,
+    nextCheckDate: args.nextCheckDate,
+    phase: "scheduling",
+    lidarScheduled: false,
+    lidarCompleteNotified: false,
+    inspectionScheduled: false,
+    reportReceived: false,
+    reportLinkNotified: false,
+    reportReminderCount: 0,
+    trackingStatus: "scheduling",
+    trackingScope: "none",
+    schedulingReminderCount: 0,
+    bothScheduledNotified: false,
+    resolved: false,
+  });
+  await seedPhaseOneTasks(ctx as never, siteId, args.triggerEmail.receivedAt);
+  return { siteId, created: true };
 }
 
 // Public Queries (for dashboard)
@@ -184,70 +287,7 @@ export const findOrCreateByAddress = internalMutation({
     }),
     nextCheckDate: v.number(),
   },
-  handler: async (ctx, args) => {
-    // 1. Exact match on normalizedAddress index
-    const exact = await ctx.db
-      .query("sites")
-      .withIndex("by_normalizedAddress", (q) => q.eq("normalizedAddress", args.normalizedAddress))
-      .first();
-
-    if (exact) {
-      const triggers = exact.triggerEmails ?? [];
-      if (!triggers.some((t) => t.emailId === args.triggerEmail.emailId)) {
-        triggers.push(args.triggerEmail);
-      }
-      await ctx.db.patch(exact._id, { triggerEmails: triggers });
-      return { siteId: exact._id, created: false };
-    }
-
-    // 2. Prefix or fuzzy match against all sites
-    const allSites = await ctx.db.query("sites").collect();
-    for (const site of allSites) {
-      const a = args.normalizedAddress;
-      const b = site.normalizedAddress;
-      const isPrefix = a.startsWith(b) || b.startsWith(a);
-      const isFuzzy = !isPrefix && similarity(a, b) >= ADDRESS_MATCH_THRESHOLD;
-      if (isPrefix || isFuzzy) {
-        const triggers = site.triggerEmails ?? [];
-        if (!triggers.some((t) => t.emailId === args.triggerEmail.emailId)) {
-          triggers.push(args.triggerEmail);
-        }
-        // Update address if new one looks more complete
-        const updates: Record<string, unknown> = { triggerEmails: triggers };
-        if (args.siteAddress.length > (site.siteAddress?.length ?? 0) && !site.fullAddress) {
-          updates.siteAddress = args.siteAddress;
-          updates.normalizedAddress = args.normalizedAddress;
-        }
-        await ctx.db.patch(site._id, updates);
-        return { siteId: site._id, created: false };
-      }
-    }
-
-    // 3. No match, create new site
-    const siteId = await ctx.db.insert("sites", {
-      siteAddress: args.siteAddress,
-      normalizedAddress: args.normalizedAddress,
-      responsiblePartyEmail: args.responsiblePartyEmail,
-      responsiblePartyName: args.responsiblePartyName,
-      triggerEmails: [args.triggerEmail],
-      triggerDate: args.triggerEmail.receivedAt,
-      nextCheckDate: args.nextCheckDate,
-      phase: "scheduling",
-      lidarScheduled: false,
-      lidarCompleteNotified: false,
-      inspectionScheduled: false,
-      reportReceived: false,
-      reportLinkNotified: false,
-      reportReminderCount: 0,
-      trackingStatus: "scheduling",
-      trackingScope: "none",
-      schedulingReminderCount: 0,
-      bothScheduledNotified: false,
-      resolved: false,
-    });
-    await seedPhaseOneTasks(ctx, siteId, args.triggerEmail.receivedAt);
-    return { siteId, created: true };
-  },
+  handler: async (ctx, args) => findOrCreateSiteByAddress(ctx as never, args),
 });
 
 export const update = internalMutation({
@@ -258,6 +298,99 @@ export const update = internalMutation({
   handler: async (ctx, { id, updates }) => {
     await ctx.db.patch(id, updates);
     return ctx.db.get(id);
+  },
+});
+
+export const discoverFromArchive = internalMutation({
+  args: {
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, { limit }) => {
+    const [sites, messages] = await Promise.all([
+      ctx.db.query("sites").collect(),
+      ctx.db.query("groupMessages").collect(),
+    ]);
+
+    const siteCandidates = sites.map((site) => ({
+      _id: String(site._id),
+      siteAddress: site.siteAddress,
+      fullAddress: site.fullAddress,
+      responsiblePartyEmail: site.responsiblePartyEmail,
+      inspectionContactEmail: site.inspectionContactEmail,
+    }));
+
+    const sortedMessages = [...messages]
+      .sort((a, b) => a.sentAt - b.sentAt)
+      .slice(0, limit ?? messages.length);
+
+    let reviewed = 0;
+    let eligible = 0;
+    let created = 0;
+    let matchedExisting = 0;
+    let noAddress = 0;
+
+    for (const message of sortedMessages) {
+      reviewed += 1;
+
+      const explanation = explainTaskSignalDetection(siteCandidates, {
+        subject: message.subject,
+        bodyText: message.bodyText,
+        from: message.from,
+        to: message.to,
+        cc: message.cc,
+        attachments: message.attachments,
+      });
+
+      if (explanation.outcome !== "no_site_match") {
+        continue;
+      }
+
+      eligible += 1;
+      const parsed = toParsedEmail(message);
+      const extracted = extractSiteInfo(parsed);
+      if (!extracted) {
+        noAddress += 1;
+        continue;
+      }
+
+      const result = await findOrCreateSiteByAddress(ctx as never, {
+        siteAddress: extracted.address,
+        normalizedAddress: normalizeAddress(extracted.address),
+        responsiblePartyEmail: extracted.responsiblePartyEmail,
+        responsiblePartyName: extracted.responsiblePartyName,
+        triggerEmail: {
+          emailId: parsed.messageId,
+          threadId: parsed.threadId,
+          messageId: parsed.messageId,
+          receivedAt: message.sentAt,
+        },
+        nextCheckDate: Date.now(),
+      });
+
+      if (result.created) {
+        const createdSite = await ctx.db.get(result.siteId) as any;
+        if (createdSite) {
+          siteCandidates.push({
+            _id: String(createdSite._id),
+            siteAddress: createdSite.siteAddress,
+            fullAddress: createdSite.fullAddress,
+            responsiblePartyEmail: createdSite.responsiblePartyEmail,
+            inspectionContactEmail: createdSite.inspectionContactEmail,
+          });
+        }
+        created += 1;
+      } else {
+        matchedExisting += 1;
+      }
+    }
+
+    return {
+      reviewed,
+      eligible,
+      created,
+      matchedExisting,
+      noAddress,
+    };
   },
 });
 
