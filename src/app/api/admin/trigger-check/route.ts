@@ -2,10 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { api } from "convex/_generated/api";
 import { getServerApiKey, getServerConvex, requireReviewer } from "@/lib/serverConvex";
 
-type TriggerType = "scheduling" | "completion" | "tracking" | "tasks" | "signals" | "discover_sites";
+type TriggerType = "scheduling" | "completion" | "tracking" | "tasks" | "signals" | "discover_sites" | "site_feedback";
 
 function isTriggerType(value: string): value is TriggerType {
-  return value === "scheduling" || value === "completion" || value === "tracking" || value === "tasks" || value === "signals" || value === "discover_sites";
+  return value === "scheduling" || value === "completion" || value === "tracking" || value === "tasks" || value === "signals" || value === "discover_sites" || value === "site_feedback";
 }
 
 export async function POST(request: NextRequest) {
@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
 
   if (!type || !isTriggerType(type)) {
     return NextResponse.json(
-      { error: "type must be one of: scheduling, completion, tracking, tasks, signals, discover_sites" },
+      { error: "type must be one of: scheduling, completion, tracking, tasks, signals, discover_sites, site_feedback" },
       { status: 400 }
     );
   }
@@ -31,6 +31,7 @@ export async function POST(request: NextRequest) {
 
   const result = await getServerConvex().action(triggerCheck, {
     apiKey: getServerApiKey(),
+    reviewerEmail: reviewer.email,
     type,
   });
 

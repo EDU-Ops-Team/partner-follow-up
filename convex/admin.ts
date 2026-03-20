@@ -35,12 +35,20 @@ type TriggerCheckResult =
         created: number;
         matchedExisting: number;
         noAddress: number;
+        suppressed?: number;
       };
       signals: {
         messageCount: number;
         created: number;
         skipped: number;
       };
+    }
+  | {
+      type: "site_feedback";
+      reviewed: number;
+      confirmed: number;
+      needsReview: number;
+      invalidDeleted: number;
     };
 
 function requireApiKey(apiKey: string) {
@@ -56,16 +64,18 @@ function requireApiKey(apiKey: string) {
 export const triggerCheck = action({
   args: {
     apiKey: v.string(),
+    reviewerEmail: v.optional(v.string()),
     type: v.union(
       v.literal("scheduling"),
       v.literal("completion"),
       v.literal("tracking"),
       v.literal("tasks"),
       v.literal("signals"),
-      v.literal("discover_sites")
+      v.literal("discover_sites"),
+      v.literal("site_feedback")
     ),
   },
-  handler: async (ctx, { apiKey, type }): Promise<TriggerCheckResult> => {
+  handler: async (ctx, { apiKey, reviewerEmail, type }): Promise<TriggerCheckResult> => {
     requireApiKey(apiKey);
 
     if (type === "tracking") {
@@ -103,6 +113,15 @@ export const triggerCheck = action({
         type,
         discovery,
         signals,
+      };
+    }
+
+    if (type === "site_feedback") {
+      return {
+        type,
+        ...(await ctx.runMutation(internal.sites.applyDispositionFeedback, {
+          appliedBy: reviewerEmail,
+        })),
       };
     }
 

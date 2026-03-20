@@ -97,6 +97,8 @@ export default defineSchema({
     recordDispositionNote: v.optional(v.string()),
     recordDispositionBy: v.optional(v.string()),
     recordDispositionAt: v.optional(v.number()),
+    recordDispositionAppliedAt: v.optional(v.number()),
+    recordDispositionAppliedBy: v.optional(v.string()),
   })
     .index("by_phase", ["phase"])
     .index("by_triggerEmailId", ["triggerEmailId"])
@@ -439,6 +441,28 @@ export default defineSchema({
     createdBy: v.optional(v.string()),
   })
     .index("by_normalizedAddress", ["normalizedAddress"]),
+
+  siteRecordFeedback: defineTable({
+    siteId: v.string(),
+    siteAddress: v.string(),
+    normalizedAddress: v.string(),
+    disposition: v.union(
+      v.literal("confirmed"),
+      v.literal("needs_review"),
+      v.literal("invalid")
+    ),
+    note: v.optional(v.string()),
+    reviewedBy: v.optional(v.string()),
+    reviewedAt: v.optional(v.number()),
+    appliedAt: v.number(),
+    appliedBy: v.optional(v.string()),
+    phase: v.string(),
+    responsiblePartyEmail: v.optional(v.string()),
+    triggerEmailIds: v.array(v.string()),
+    triggerThreadIds: v.array(v.string()),
+  })
+    .index("by_disposition", ["disposition"])
+    .index("by_siteId", ["siteId"]),
 
   taskSignals: defineTable({
     messageId: v.id("groupMessages"),

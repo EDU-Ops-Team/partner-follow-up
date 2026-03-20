@@ -747,7 +747,7 @@ function AdminTrackingControls() {
   const { data: session } = useSession();
   const role = (session?.user as { role?: "admin" | "reviewer" } | undefined)?.role;
   const isAdmin = role === "admin";
-  const [running, setRunning] = useState<"scheduling" | "completion" | "tracking" | "tasks" | null>(null);
+  const [running, setRunning] = useState<"scheduling" | "completion" | "tracking" | "tasks" | "site_feedback" | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -755,7 +755,7 @@ function AdminTrackingControls() {
     return null;
   }
 
-  async function trigger(type: "scheduling" | "completion" | "tracking" | "tasks") {
+  async function trigger(type: "scheduling" | "completion" | "tracking" | "tasks" | "site_feedback") {
     setRunning(type);
     setMessage(null);
     setError(null);
@@ -779,6 +779,10 @@ function AdminTrackingControls() {
           siteCount?: number;
           tasksCreated?: number;
           tasksUpdated?: number;
+          reviewed?: number;
+          confirmed?: number;
+          needsReview?: number;
+          invalidDeleted?: number;
         };
       };
 
@@ -793,6 +797,10 @@ function AdminTrackingControls() {
       } else if (type === "tasks") {
         setMessage(
           `Task backfill ran. ${payload.result?.tasksCreated ?? 0} task(s) created across ${payload.result?.siteCount ?? 0} site(s); ${payload.result?.tasksUpdated ?? 0} task(s) synced.`
+        );
+      } else if (type === "site_feedback") {
+        setMessage(
+          `Site feedback applied. Reviewed ${payload.result?.reviewed ?? 0}; confirmed ${payload.result?.confirmed ?? 0}; needs review ${payload.result?.needsReview ?? 0}; removed ${payload.result?.invalidDeleted ?? 0} invalid site(s).`
         );
       } else {
         setMessage(
@@ -843,6 +851,13 @@ function AdminTrackingControls() {
             className="rounded-md bg-white px-3 py-2 text-sm font-medium text-blue-700 ring-1 ring-blue-200 transition-colors hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {running === "tasks" ? "Running..." : "Backfill Tasks"}
+          </button>
+          <button
+            onClick={() => trigger("site_feedback")}
+            disabled={running !== null}
+            className="rounded-md bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {running === "site_feedback" ? "Applying..." : "Apply Site Feedback"}
           </button>
         </div>
       </div>

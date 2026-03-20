@@ -236,6 +236,146 @@ async function upsertDiscoverySuppression(
   return existing._id;
 }
 
+function shouldSuppressDisposition(site: {
+  recordDisposition?: string;
+  recordDispositionNote?: string;
+}) {
+  return site.recordDisposition === "invalid" || /not applicable/i.test(site.recordDispositionNote ?? "");
+}
+
+async function recordSiteFeedback(
+  ctx: { db: { insert: Function } },
+  site: {
+    _id: string;
+    siteAddress: string;
+    normalizedAddress: string;
+    recordDisposition?: "confirmed" | "needs_review" | "invalid" | "unreviewed";
+    recordDispositionNote?: string;
+    recordDispositionBy?: string;
+    recordDispositionAt?: number;
+    phase: string;
+    responsiblePartyEmail?: string;
+    triggerEmails?: Array<{
+      emailId: string;
+      threadId?: string;
+      messageId?: string;
+    }>;
+  },
+  appliedAt: number,
+  appliedBy?: string,
+) {
+  if (!site.recordDisposition || site.recordDisposition === "unreviewed") {
+    return null;
+  }
+
+  return ctx.db.insert("siteRecordFeedback", {
+    siteId: String(site._id),
+    siteAddress: site.siteAddress,
+    normalizedAddress: site.normalizedAddress,
+    disposition: site.recordDisposition,
+    note: site.recordDispositionNote,
+    reviewedBy: site.recordDispositionBy,
+    reviewedAt: site.recordDispositionAt,
+    appliedAt,
+    appliedBy,
+    phase: site.phase,
+    responsiblePartyEmail: site.responsiblePartyEmail,
+    triggerEmailIds: (site.triggerEmails ?? []).map((trigger) => trigger.messageId || trigger.emailId).filter(Boolean),
+    triggerThreadIds: (site.triggerEmails ?? []).map((trigger) => trigger.threadId).filter(Boolean),
+  });
+}
+
+async function deleteSiteCascade(
+  ctx: {
+    db: {
+      delete: Function;
+      get: Function;
+      patch: Function;
+      query: Function;
+    };
+  },
+  site: any,
+) {
+  const id = site._id;
+  const [tasks, taskEvents, taskSignals, processedMessages, auditLogs, draftEmails, classifications, threads] =
+    await Promise.all([
+      ctx.db.query("tasks").withIndex("by_siteId", (q: any) => q.eq("siteId", id)).collect(),
+      ctx.db.query("taskEvents").withIndex("by_siteId", (q: any) => q.eq("siteId", id)).collect(),
+      ctx.db.query("taskSignals").withIndex("by_siteId", (q: any) => q.eq("siteId", id)).collect(),
+      ctx.db.query("processedMessages").withIndex("by_siteId", (q: any) => q.eq("siteId", id)).collect(),
+      ctx.db.query("auditLogs").withIndex("by_siteId", (q: any) => q.eq("siteId", id)).collect(),
+      ctx.db.query("draftEmails").withIndex("by_siteId", (q: any) => q.eq("siteId", id)).collect(),
+      ctx.db.query("emailClassifications").collect(),
+      ctx.db.query("emailThreads").collect(),
+    ]);
+
+  const shouldSuppressFutureDiscovery = shouldSuppressDisposition(site);
+
+  if (shouldSuppressFutureDiscovery) {
+    await upsertDiscoverySuppression(ctx as never, {
+      siteAddress: site.siteAddress,
+      normalizedAddress: site.normalizedAddress,
+      reason: "invalid_site_record",
+      note: site.recordDispositionNote,
+      sourceMessageIds: (site.triggerEmails ?? []).map((trigger: any) => trigger.messageId || trigger.emailId).filter(Boolean),
+      sourceThreadIds: (site.triggerEmails ?? []).map((trigger: any) => trigger.threadId).filter(Boolean),
+      createdBy: site.recordDispositionBy,
+      createdAt: site.recordDispositionAt ?? Date.now(),
+    });
+  }
+
+  for (const draft of draftEmails) {
+    await ctx.db.patch(draft._id, { siteId: undefined });
+  }
+
+  for (const classification of classifications) {
+    if (!classification.matchedSiteIds.includes(id)) {
+      continue;
+    }
+    await ctx.db.patch(classification._id, {
+      matchedSiteIds: classification.matchedSiteIds.filter((siteId: any) => siteId !== id),
+    });
+  }
+
+  for (const thread of threads) {
+    if (!thread.linkedSiteIds.includes(id)) {
+      continue;
+    }
+    await ctx.db.patch(thread._id, {
+      linkedSiteIds: thread.linkedSiteIds.filter((siteId: any) => siteId !== id),
+    });
+  }
+
+  for (const signal of taskSignals) {
+    await ctx.db.delete(signal._id);
+  }
+  for (const event of taskEvents) {
+    await ctx.db.delete(event._id);
+  }
+  for (const task of tasks) {
+    await ctx.db.delete(task._id);
+  }
+  for (const processed of processedMessages) {
+    await ctx.db.delete(processed._id);
+  }
+  for (const log of auditLogs) {
+    await ctx.db.delete(log._id);
+  }
+
+  await ctx.db.delete(id);
+
+  return {
+    deletedSiteId: id,
+    deletedTaskCount: tasks.length,
+    deletedTaskEventCount: taskEvents.length,
+    deletedTaskSignalCount: taskSignals.length,
+    deletedProcessedMessageCount: processedMessages.length,
+    deletedAuditLogCount: auditLogs.length,
+    unlinkedDraftCount: draftEmails.length,
+    futureDiscoverySuppressed: shouldSuppressFutureDiscovery,
+  };
+}
+
 // Public Queries (for dashboard)
 
 export const list = query({
@@ -590,6 +730,8 @@ export const adminUpdate = mutation({
       recordDispositionNote: v.optional(v.string()),
       recordDispositionBy: v.optional(v.string()),
       recordDispositionAt: v.optional(v.number()),
+      recordDispositionAppliedAt: v.optional(v.number()),
+      recordDispositionAppliedBy: v.optional(v.string()),
     }),
   },
   handler: async (ctx, { id, updates }) => {
@@ -630,6 +772,53 @@ export const adminUpsertDiscoverySuppression = mutation({
   },
 });
 
+export const applyDispositionFeedback = internalMutation({
+  args: {
+    appliedBy: v.optional(v.string()),
+  },
+  handler: async (ctx, { appliedBy }) => {
+    const now = Date.now();
+    const allSites = await ctx.db.query("sites").collect();
+    const candidates = allSites.filter((site) =>
+      site.recordDisposition &&
+      site.recordDisposition !== "unreviewed" &&
+      (!site.recordDispositionAppliedAt || (site.recordDispositionAt ?? 0) > site.recordDispositionAppliedAt)
+    );
+
+    let confirmed = 0;
+    let needsReview = 0;
+    let invalidDeleted = 0;
+
+    for (const site of candidates) {
+      await recordSiteFeedback(ctx as never, site as never, now, appliedBy);
+
+      if (shouldSuppressDisposition(site)) {
+        await deleteSiteCascade(ctx as never, site);
+        invalidDeleted += 1;
+        continue;
+      }
+
+      await ctx.db.patch(site._id, {
+        recordDispositionAppliedAt: now,
+        recordDispositionAppliedBy: appliedBy,
+      });
+
+      if (site.recordDisposition === "confirmed") {
+        confirmed += 1;
+      } else if (site.recordDisposition === "needs_review") {
+        needsReview += 1;
+      }
+    }
+
+    return {
+      reviewed: candidates.length,
+      confirmed,
+      needsReview,
+      invalidDeleted,
+    };
+  },
+});
+
 export const adminDeleteCascade = mutation({
   args: { id: v.id("sites") },
   handler: async (ctx, { id }) => {
@@ -637,86 +826,7 @@ export const adminDeleteCascade = mutation({
     if (!site) {
       throw new Error("Site not found");
     }
-
-    const [tasks, taskEvents, taskSignals, processedMessages, auditLogs, draftEmails, classifications, threads] =
-      await Promise.all([
-        ctx.db.query("tasks").withIndex("by_siteId", (q) => q.eq("siteId", id)).collect(),
-        ctx.db.query("taskEvents").withIndex("by_siteId", (q) => q.eq("siteId", id)).collect(),
-        ctx.db.query("taskSignals").withIndex("by_siteId", (q) => q.eq("siteId", id)).collect(),
-        ctx.db.query("processedMessages").withIndex("by_siteId", (q) => q.eq("siteId", id)).collect(),
-        ctx.db.query("auditLogs").withIndex("by_siteId", (q) => q.eq("siteId", id)).collect(),
-        ctx.db.query("draftEmails").withIndex("by_siteId", (q) => q.eq("siteId", id)).collect(),
-        ctx.db.query("emailClassifications").collect(),
-        ctx.db.query("emailThreads").collect(),
-      ]);
-
-    const shouldSuppressFutureDiscovery =
-      site.recordDisposition === "invalid" ||
-      /not applicable/i.test(site.recordDispositionNote ?? "");
-
-    if (shouldSuppressFutureDiscovery) {
-      await upsertDiscoverySuppression(ctx as never, {
-        siteAddress: site.siteAddress,
-        normalizedAddress: site.normalizedAddress,
-        reason: "invalid_site_record",
-        note: site.recordDispositionNote,
-        sourceMessageIds: (site.triggerEmails ?? []).map((trigger: any) => trigger.messageId || trigger.emailId).filter(Boolean),
-        sourceThreadIds: (site.triggerEmails ?? []).map((trigger: any) => trigger.threadId).filter(Boolean),
-        createdBy: site.recordDispositionBy,
-        createdAt: site.recordDispositionAt ?? Date.now(),
-      });
-    }
-
-    for (const draft of draftEmails) {
-      await ctx.db.patch(draft._id, { siteId: undefined });
-    }
-
-    for (const classification of classifications) {
-      if (!classification.matchedSiteIds.includes(id)) {
-        continue;
-      }
-      await ctx.db.patch(classification._id, {
-        matchedSiteIds: classification.matchedSiteIds.filter((siteId) => siteId !== id),
-      });
-    }
-
-    for (const thread of threads) {
-      if (!thread.linkedSiteIds.includes(id)) {
-        continue;
-      }
-      await ctx.db.patch(thread._id, {
-        linkedSiteIds: thread.linkedSiteIds.filter((siteId) => siteId !== id),
-      });
-    }
-
-    for (const signal of taskSignals) {
-      await ctx.db.delete(signal._id);
-    }
-    for (const event of taskEvents) {
-      await ctx.db.delete(event._id);
-    }
-    for (const task of tasks) {
-      await ctx.db.delete(task._id);
-    }
-    for (const processed of processedMessages) {
-      await ctx.db.delete(processed._id);
-    }
-    for (const log of auditLogs) {
-      await ctx.db.delete(log._id);
-    }
-
-    await ctx.db.delete(id);
-
-    return {
-      deletedSiteId: id,
-      deletedTaskCount: tasks.length,
-      deletedTaskEventCount: taskEvents.length,
-      deletedTaskSignalCount: taskSignals.length,
-      deletedProcessedMessageCount: processedMessages.length,
-      deletedAuditLogCount: auditLogs.length,
-      unlinkedDraftCount: draftEmails.length,
-      futureDiscoverySuppressed: shouldSuppressFutureDiscovery,
-    };
+    return deleteSiteCascade(ctx as never, site);
   },
 });
 
