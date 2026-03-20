@@ -135,6 +135,105 @@ export const getInsights = query({
   },
 });
 
+export const getReviewQueue = query({
+  args: { apiKey: v.string(), limit: v.optional(v.number()) },
+  handler: async (ctx, { apiKey, limit }) => {
+    requireApiKey(apiKey);
+    const cappedLimit = Math.min(limit ?? 200, 500);
+
+    const allDrafts = await ctx.db.query("draftEmails").order("desc").collect();
+    const classificationIds = Array.from(new Set(allDrafts.map((draft) => String(draft.classificationId))));
+    const reviewerIds = Array.from(
+      new Set(
+        allDrafts
+          .map((draft) => draft.reviewedBy)
+          .filter((reviewerId): reviewerId is NonNullable<typeof reviewerId> => reviewerId !== undefined)
+          .map((reviewerId) => String(reviewerId))
+      )
+    );
+
+    const [classifications, reviewers] = await Promise.all([
+      Promise.all(
+        classificationIds.map(async (classificationId) => {
+          const draft = allDrafts.find((item) => String(item.classificationId) === classificationId);
+          if (!draft) return null;
+          return [classificationId, await ctx.db.get(draft.classificationId)] as const;
+        })
+      ),
+      Promise.all(
+        reviewerIds.map(async (reviewerId) => {
+          const draft = allDrafts.find((item) => item.reviewedBy && String(item.reviewedBy) === reviewerId);
+          if (!draft?.reviewedBy) return null;
+          return [reviewerId, await ctx.db.get(draft.reviewedBy)] as const;
+        })
+      ),
+    ]);
+
+    const classificationById = new Map(
+      classifications.filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+    );
+    const reviewerById = new Map(
+      reviewers.filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+    );
+
+    const pending = allDrafts
+      .filter((draft) => draft.status === "pending")
+      .slice(0, cappedLimit)
+      .map((draft) => {
+        const classification = classificationById.get(String(draft.classificationId));
+
+        return {
+          dispositionStatus: draft.status,
+          draft,
+          classificationType: classification?.classificationType ?? "unknown",
+          from: classification?.from ?? null,
+          reviewerName: null,
+        };
+      });
+    const reviewed = allDrafts
+      .filter((draft) => draft.status !== "pending")
+      .slice(0, cappedLimit)
+      .map((draft) => {
+        const classification = classificationById.get(String(draft.classificationId));
+        const reviewer = draft.reviewedBy ? reviewerById.get(String(draft.reviewedBy)) : null;
+
+        return {
+          dispositionStatus: draft.status,
+          draft,
+          classificationType: classification?.classificationType ?? "unknown",
+          from: classification?.from ?? null,
+          reviewerName: reviewer?.name ?? reviewer?.email ?? null,
+        };
+      });
+
+    const countsByStatus = reviewed.reduce<Record<string, number>>((acc, item) => {
+      acc[item.dispositionStatus] = (acc[item.dispositionStatus] ?? 0) + 1;
+      return acc;
+    }, {});
+
+    const reviewedTypeCounts = reviewed.reduce<Record<string, number>>((acc, item) => {
+      acc[item.classificationType] = (acc[item.classificationType] ?? 0) + 1;
+      return acc;
+    }, {});
+
+    const topReviewedTypes = Object.entries(reviewedTypeCounts)
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .slice(0, 5)
+      .map(([label, count]) => ({ label, count }));
+
+    return {
+      pending,
+      reviewed,
+      insights: {
+        pendingCount: pending.length,
+        reviewedCount: reviewed.length,
+        countsByStatus,
+        topReviewedTypes,
+      },
+    };
+  },
+});
+
 export const getReviewedExamples = query({
   args: {
     apiKey: v.string(),

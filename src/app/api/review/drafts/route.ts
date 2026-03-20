@@ -12,11 +12,21 @@ export async function GET(request: NextRequest) {
   }
 
   const convex = getServerConvex();
-  const drafts = await convex.query(api.draftEmails.list, {
+
+  if (status) {
+    const drafts = await convex.query(api.draftEmails.list, {
+      apiKey: getServerApiKey(),
+      status,
+      limit,
+    });
+
+    return NextResponse.json({ drafts });
+  }
+
+  const queue = await convex.query(api.draftEmails.getReviewQueue, {
     apiKey: getServerApiKey(),
-    status: status ?? undefined,
     limit,
   });
 
-  return NextResponse.json({ drafts });
+  return NextResponse.json(queue);
 }

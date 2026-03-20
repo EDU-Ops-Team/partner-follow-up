@@ -7,6 +7,25 @@ import { getReviewFeedbackReasonLabel } from "../../../shared/reviewFeedback";
 
 type DraftEmail = Doc<"draftEmails">;
 
+type ReviewQueueItem = {
+  dispositionStatus: string;
+  draft: DraftEmail;
+  classificationType: string;
+  from: string | null;
+  reviewerName: string | null;
+};
+
+type ReviewQueuePayload = {
+  pending: ReviewQueueItem[];
+  reviewed: ReviewQueueItem[];
+  insights: {
+    pendingCount: number;
+    reviewedCount: number;
+    countsByStatus: Record<string, number>;
+    topReviewedTypes: Array<{ label: string; count: number }>;
+  };
+};
+
 type InsightTypeSummary = {
   classificationType: string;
   reviewedCount: number;
@@ -65,7 +84,7 @@ function statusBadge(status: string) {
   };
   return (
     <span className={`px-2 py-0.5 rounded text-xs font-medium ${colors[status] ?? "bg-gray-100"}`}>
-      {status}
+      {status.replace(/_/g, " ")}
     </span>
   );
 }
@@ -123,8 +142,53 @@ function summaryCard(label: string, value: string, subtext: string) {
   );
 }
 
+function DraftCard({ item, reviewed = false }: { item: ReviewQueueItem; reviewed?: boolean }) {
+  const reviewedAt = item.draft.reviewedAt ?? item.draft.createdAt;
+
+  return (
+    <Link
+      href={`/review/${item.draft._id}`}
+      className={`block rounded-lg border p-4 transition-all hover:shadow-sm ${
+        reviewed
+          ? "border-gray-200 bg-gray-50 hover:border-gray-300"
+          : "border-gray-200 bg-white hover:border-gray-300"
+      }`}
+    >
+      <div className="flex items-start justify-between gap-4 mb-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          {statusBadge(item.draft.status)}
+          {tierBadge(item.draft.tier)}
+          <span className="text-xs text-gray-500">{classificationLabel(item.classificationType)}</span>
+        </div>
+        <span className="text-xs text-gray-400">{timeAgo(reviewed ? reviewedAt : item.draft.createdAt)}</span>
+      </div>
+      <div className="text-sm font-medium text-gray-800 mb-1">{item.draft.originalSubject}</div>
+      <div className="flex flex-wrap items-center gap-4 text-xs text-gray-500">
+        <span>To: {item.draft.originalTo || "-"}</span>
+        {item.draft.originalCc && <span>CC: {item.draft.originalCc}</span>}
+        {item.from && <span>From: {item.from}</span>}
+        {reviewed && item.reviewerName && <span>Reviewed by {item.reviewerName}</span>}
+      </div>
+      <div className="text-xs text-gray-400 mt-2 line-clamp-2">
+        {item.draft.originalBody.replace(/<[^>]*>/g, "").slice(0, 200)}
+      </div>
+      {reviewed && (
+        <div className="mt-2 flex flex-wrap gap-3 text-xs text-gray-500">
+          {item.draft.editDistance !== undefined && item.draft.editDistance !== null && (
+            <span>Edit distance {item.draft.editDistance.toFixed(3)}</span>
+          )}
+          {item.draft.feedbackReasons && item.draft.feedbackReasons.length > 0 && (
+            <span>{item.draft.feedbackReasons.length} review reason{item.draft.feedbackReasons.length === 1 ? "" : "s"}</span>
+          )}
+          <span>{formatDatetime(reviewedAt)}</span>
+        </div>
+      )}
+    </Link>
+  );
+}
+
 export default function ReviewQueue() {
-  const [drafts, setDrafts] = useState<DraftEmail[] | null>(null);
+  const [queue, setQueue] = useState<ReviewQueuePayload | null>(null);
   const [insights, setInsights] = useState<LearningInsights | null>(null);
   const [selectedType, setSelectedType] = useState<string | null>(null);
   const [examples, setExamples] = useState<ReviewedExample[] | null>(null);
@@ -136,18 +200,18 @@ export default function ReviewQueue() {
     let active = true;
     (async () => {
       try {
-        const [draftsRes, insightsRes] = await Promise.all([
+        const [queueRes, insightsRes] = await Promise.all([
           fetch("/api/review/drafts?limit=200", { cache: "no-store" }),
           fetch("/api/review/insights", { cache: "no-store" }),
         ]);
-        if (!draftsRes.ok) throw new Error(`Draft request failed (${draftsRes.status})`);
+        if (!queueRes.ok) throw new Error(`Draft request failed (${queueRes.status})`);
         if (!insightsRes.ok) throw new Error(`Insights request failed (${insightsRes.status})`);
 
-        const draftsData = (await draftsRes.json()) as { drafts: DraftEmail[] };
+        const queueData = (await queueRes.json()) as ReviewQueuePayload;
         const insightsData = (await insightsRes.json()) as { insights: LearningInsights };
 
         if (!active) return;
-        setDrafts(draftsData.drafts);
+        setQueue(queueData);
         setInsights(insightsData.insights);
       } catch (err) {
         if (active) setError(err instanceof Error ? err.message : "Failed to load review data");
@@ -196,12 +260,21 @@ export default function ReviewQueue() {
     };
   }, [selectedType]);
 
-  const pendingCount = useMemo(
-    () => (drafts ?? []).filter((draft) => draft.status === "pending").length,
-    [drafts]
-  );
+  const reviewedGroups = useMemo(() => {
+    const reviewed = queue?.reviewed ?? [];
+    const statuses = Array.from(new Set(reviewed.map((item) => item.dispositionStatus))).sort((a, b) =>
+      a.localeCompare(b)
+    );
 
-  if ((drafts === null || insights === null) && !error) {
+    return statuses
+      .map((status) => ({
+        status,
+        items: reviewed.filter((item) => item.dispositionStatus === status),
+      }))
+      .filter((group) => group.items.length > 0);
+  }, [queue]);
+
+  if ((queue === null || insights === null) && !error) {
     return (
       <main className="max-w-7xl mx-auto px-4 py-8">
         <div className="text-gray-400 py-8 text-center">Loading review data...</div>
@@ -217,7 +290,11 @@ export default function ReviewQueue() {
     );
   }
 
+  const currentQueue = queue!;
   const currentInsights = insights!;
+  const approvedCount = currentQueue.insights.countsByStatus.approved ?? 0;
+  const editedCount = currentQueue.insights.countsByStatus.edited ?? 0;
+  const rejectedCount = currentQueue.insights.countsByStatus.rejected ?? 0;
 
   return (
     <main className="max-w-7xl mx-auto px-4 py-8 space-y-8">
@@ -225,10 +302,76 @@ export default function ReviewQueue() {
         <div>
           <h1 className="text-xl font-bold">Review Queue</h1>
           <p className="text-sm text-gray-500 mt-1">
-            {pendingCount} draft{pendingCount !== 1 ? "s" : ""} pending review
+            {currentQueue.insights.pendingCount} draft{currentQueue.insights.pendingCount !== 1 ? "s" : ""} pending review
           </p>
         </div>
       </div>
+
+      <section className="space-y-4">
+        <div>
+          <h2 className="text-sm font-semibold text-gray-900">Queue Overview</h2>
+          <p className="text-sm text-gray-500 mt-1">
+            Pending drafts are first. Reviewed drafts are grouped below by final disposition for quick drill-down.
+          </p>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          {summaryCard("Pending", String(currentQueue.insights.pendingCount), "Drafts waiting for action")}
+          {summaryCard("Approved", String(approvedCount), "Sent without material edits")}
+          {summaryCard("Edited", String(editedCount), "Reviewer changed before send")}
+          {summaryCard("Rejected", String(rejectedCount), "Stopped before send")}
+        </div>
+        {currentQueue.insights.topReviewedTypes.length > 0 && (
+          <div className="bg-white border border-gray-200 rounded-lg p-4">
+            <div className="text-xs font-medium uppercase tracking-wide text-gray-500">Most Reviewed Types</div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {currentQueue.insights.topReviewedTypes.map((item) => (
+                <span key={item.label} className="inline-flex items-center gap-2 rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-700">
+                  <span>{classificationLabel(item.label)}</span>
+                  <span className="font-semibold text-gray-900">{item.count}</span>
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+      </section>
+
+      <section className="space-y-3">
+        {currentQueue.pending.length === 0 ? (
+          <div className="bg-white border border-gray-200 rounded-lg px-4 py-8 text-center text-gray-400">
+            No drafts pending review.
+          </div>
+        ) : (
+          <>
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-gray-900">Pending Review</h2>
+              <span className="text-xs text-gray-500">{currentQueue.pending.length}</span>
+            </div>
+            <div className="space-y-3">
+              {currentQueue.pending.map((item) => (
+                <DraftCard key={item.draft._id} item={item} />
+              ))}
+            </div>
+          </>
+        )}
+
+        {reviewedGroups.map((group) => (
+          <details key={group.status} className="rounded-lg border border-gray-200 bg-white" open={false}>
+            <summary className="cursor-pointer list-none px-4 py-3 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                {statusBadge(group.status)}
+                <span className="text-sm font-semibold text-gray-900 capitalize">{group.status.replace(/_/g, " ")}</span>
+                <span className="text-xs text-gray-500">{group.items.length}</span>
+              </div>
+              <span className="text-xs text-gray-400">Expand</span>
+            </summary>
+            <div className="border-t border-gray-100 p-4 space-y-3">
+              {group.items.map((item) => (
+                <DraftCard key={item.draft._id} item={item} reviewed />
+              ))}
+            </div>
+          </details>
+        ))}
+      </section>
 
       <section className="space-y-4">
         <div>
@@ -288,7 +431,7 @@ export default function ReviewQueue() {
                             {item.commonEditCategories.map((entry) => (
                               <div key={entry.category} className="text-xs">
                                 <span className="font-medium text-gray-800">{entry.category}</span>
-                                <span className="text-gray-400"> × {entry.count}</span>
+                                <span className="text-gray-400"> x {entry.count}</span>
                               </div>
                             ))}
                           </div>
@@ -389,8 +532,8 @@ export default function ReviewQueue() {
                         </div>
                         <div className="text-sm font-medium text-gray-900">{example.subject}</div>
                         <div className="text-xs text-gray-500">
-                          From {example.from} • Reviewed {formatDatetime(example.reviewedAt)}
-                          {example.reviewerName ? ` • ${example.reviewerName}` : ""}
+                          From {example.from} - Reviewed {formatDatetime(example.reviewedAt)}
+                          {example.reviewerName ? ` - ${example.reviewerName}` : ""}
                         </div>
                       </div>
                       <Link
@@ -464,42 +607,7 @@ export default function ReviewQueue() {
           </div>
         )}
       </section>
-
-      <section>
-        {(drafts ?? []).length === 0 ? (
-          <div className="bg-white border border-gray-200 rounded-lg px-4 py-12 text-center text-gray-400">
-            No drafts yet. Drafts will appear here once the agent starts processing emails.
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {(drafts ?? []).map((draft) => (
-              <Link
-                key={draft._id}
-                href={`/review/${draft._id}`}
-                className="block bg-white border border-gray-200 rounded-lg p-4 hover:shadow-sm hover:border-gray-300 transition-all"
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    {statusBadge(draft.status)}
-                    {tierBadge(draft.tier)}
-                  </div>
-                  <span className="text-xs text-gray-400">{timeAgo(draft.createdAt)}</span>
-                </div>
-                <div className="text-sm font-medium text-gray-800 mb-1">
-                  {draft.originalSubject}
-                </div>
-                <div className="flex items-center gap-4 text-xs text-gray-500">
-                  <span>To: {draft.originalTo || "-"}</span>
-                  {draft.originalCc && <span>CC: {draft.originalCc}</span>}
-                </div>
-                <div className="text-xs text-gray-400 mt-2 line-clamp-2">
-                  {draft.originalBody.replace(/<[^>]*>/g, "").slice(0, 200)}
-                </div>
-              </Link>
-            ))}
-          </div>
-        )}
-      </section>
     </main>
   );
 }
+
