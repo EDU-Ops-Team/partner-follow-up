@@ -53,7 +53,7 @@ type LearningInsights = {
 type ReviewedExample = {
   draftId: string;
   classificationType: string;
-  status: "approved" | "edited" | "rejected";
+  status: "approved" | "edited" | "saved" | "rejected";
   pass: boolean;
   reviewedAt: number;
   subject: string;
@@ -78,6 +78,7 @@ function statusBadge(status: string) {
     pending: "bg-yellow-100 text-yellow-800",
     approved: "bg-green-100 text-green-800",
     edited: "bg-blue-100 text-blue-800",
+    saved: "bg-indigo-100 text-indigo-800",
     rejected: "bg-red-100 text-red-800",
     auto_sent: "bg-purple-100 text-purple-800",
     expired: "bg-gray-100 text-gray-500",
@@ -294,6 +295,7 @@ export default function ReviewQueue() {
   const currentInsights = insights!;
   const approvedCount = currentQueue.insights.countsByStatus.approved ?? 0;
   const editedCount = currentQueue.insights.countsByStatus.edited ?? 0;
+  const savedCount = currentQueue.insights.countsByStatus.saved ?? 0;
   const rejectedCount = currentQueue.insights.countsByStatus.rejected ?? 0;
 
   return (
@@ -314,10 +316,11 @@ export default function ReviewQueue() {
             Pending drafts are first. Reviewed drafts are grouped below by final disposition for quick drill-down.
           </p>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
           {summaryCard("Pending", String(currentQueue.insights.pendingCount), "Drafts waiting for action")}
           {summaryCard("Approved", String(approvedCount), "Sent without material edits")}
           {summaryCard("Edited", String(editedCount), "Reviewer changed before send")}
+          {summaryCard("Saved", String(savedCount), "Edited for learning only")}
           {summaryCard("Rejected", String(rejectedCount), "Stopped before send")}
         </div>
         {currentQueue.insights.topReviewedTypes.length > 0 && (
@@ -555,7 +558,7 @@ export default function ReviewQueue() {
                       </div>
                       <div className="rounded border border-gray-100 bg-green-50 p-3">
                         <div className="text-xs font-medium uppercase tracking-wide text-gray-500 mb-2">
-                          Sent Version
+                          {example.status === "saved" ? "Saved Version" : "Sent Version"}
                         </div>
                         <div className="text-sm text-gray-700 whitespace-pre-wrap">
                           {example.sentBody ? htmlToText(example.sentBody).slice(0, 600) : "No sent version"}

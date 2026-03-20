@@ -1,6 +1,6 @@
 export interface LearningInsightRecord {
   classificationType: string;
-  status: "pending" | "approved" | "edited" | "rejected" | "auto_sent" | "expired";
+  status: "pending" | "approved" | "edited" | "saved" | "rejected" | "auto_sent" | "expired";
   editsMade?: boolean;
   editDistance?: number;
   editCategories?: string[];
@@ -36,11 +36,11 @@ function round(value: number): number {
 }
 
 function isReviewed(status: LearningInsightRecord["status"]): boolean {
-  return status === "approved" || status === "edited" || status === "rejected";
+  return status === "approved" || status === "edited" || status === "saved" || status === "rejected";
 }
 
 function isPass(record: LearningInsightRecord): boolean {
-  if (!isReviewed(record.status) || record.status === "rejected") {
+  if (!isReviewed(record.status) || record.status === "rejected" || record.status === "saved") {
     return false;
   }
   return (record.editDistance ?? (record.editsMade ? 1 : 0)) <= 0.02;
@@ -80,7 +80,7 @@ export function aggregateLearningInsights(
       if (record.status === "approved" && !record.editsMade) {
         bucket.approvedAsIsCount += 1;
       }
-      if (record.status === "edited") {
+      if (record.status === "edited" || record.status === "saved") {
         bucket.editedCount += 1;
       }
       if (record.status === "rejected") {

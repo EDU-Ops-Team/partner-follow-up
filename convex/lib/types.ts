@@ -99,6 +99,7 @@ export type DraftStatus =
   | "pending"
   | "approved"
   | "edited"
+  | "saved"
   | "rejected"
   | "auto_sent"
   | "expired";

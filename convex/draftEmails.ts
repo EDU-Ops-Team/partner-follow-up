@@ -74,6 +74,7 @@ export const list = query({
               | "pending"
               | "approved"
               | "edited"
+              | "saved"
               | "rejected"
               | "auto_sent"
               | "expired"
@@ -271,6 +272,7 @@ export const getReviewedExamples = query({
         (draft) =>
           draft.status === "approved" ||
           draft.status === "edited" ||
+          draft.status === "saved" ||
           draft.status === "rejected"
       )
       .sort((a, b) => (b.reviewedAt ?? b.createdAt) - (a.reviewedAt ?? a.createdAt))
@@ -294,6 +296,7 @@ export const getReviewedExamples = query({
       const reviewer = draft.reviewedBy ? reviewers.get(draft.reviewedBy) : null;
       const pass =
         draft.status !== "rejected" &&
+        draft.status !== "saved" &&
         (draft.editDistance ?? (draft.editsMade ? 1 : 0)) <= 0.02;
 
       return {
@@ -373,6 +376,7 @@ export const updateReview = internalMutation({
     status: v.union(
       v.literal("approved"),
       v.literal("edited"),
+      v.literal("saved"),
       v.literal("rejected")
     ),
     reviewedBy: v.id("reviewers"),
@@ -483,6 +487,60 @@ export const editAndSend = mutation({
     });
 
     await ctx.scheduler.runAfter(0, internal.sendDraftEmail.sendApproved, { id });
+  },
+});
+
+export const editAndSave = mutation({
+  args: {
+    id: v.id("draftEmails"),
+    apiKey: v.string(),
+    reviewerGoogleId: v.optional(v.string()),
+    reviewerEmail: v.optional(v.string()),
+    to: v.string(),
+    cc: v.optional(v.string()),
+    subject: v.string(),
+    body: v.string(),
+    feedbackReasons: v.optional(v.array(v.union(...REVIEW_FEEDBACK_REASONS.map((reason) => v.literal(reason))))),
+    feedbackNote: v.optional(v.string()),
+  },
+  handler: async (ctx, { id, apiKey, reviewerGoogleId, reviewerEmail, to, cc, subject, body, feedbackReasons, feedbackNote }) => {
+    requireApiKey(apiKey);
+    const draft = await ctx.db.get(id);
+    if (!draft || draft.status !== "pending") {
+      throw new Error("Draft not found or not pending");
+    }
+
+    const reviewer = await getReviewerByIdentity(ctx, { reviewerGoogleId, reviewerEmail });
+    if (!reviewer) throw new Error("Reviewer not found");
+
+    const diff = analyzeReviewDiff({
+      originalTo: draft.originalTo,
+      originalCc: draft.originalCc,
+      originalSubject: draft.originalSubject,
+      originalBodyHtml: draft.originalBody,
+      editedTo: to,
+      editedCc: cc,
+      editedSubject: subject,
+      editedBodyText: body,
+    });
+    const htmlBody = plainTextToHtml(body);
+
+    await ctx.db.patch(id, {
+      status: "saved",
+      reviewedBy: reviewer._id,
+      reviewedAt: Date.now(),
+      sentTo: to,
+      sentCc: cc,
+      sentSubject: subject,
+      sentBody: htmlBody,
+      editsMade: diff.editsMade,
+      editDistance: diff.editDistance,
+      editCategories: diff.editCategories,
+      feedbackReasons: feedbackReasons ?? [],
+      feedbackNote: feedbackNote?.trim() || undefined,
+    });
+
+    return { ok: true };
   },
 });
 

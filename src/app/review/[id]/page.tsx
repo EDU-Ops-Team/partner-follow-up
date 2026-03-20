@@ -24,6 +24,7 @@ function statusBadge(status: string) {
     pending: "bg-yellow-100 text-yellow-800",
     approved: "bg-green-100 text-green-800",
     edited: "bg-blue-100 text-blue-800",
+    saved: "bg-indigo-100 text-indigo-800",
     rejected: "bg-red-100 text-red-800",
     auto_sent: "bg-purple-100 text-purple-800",
     expired: "bg-gray-100 text-gray-500",
@@ -253,7 +254,9 @@ export default function ReviewDraft() {
 
         {currentDraft.sentBody && (
           <div className="p-4 border-t border-gray-100 bg-green-50">
-            <h3 className="text-xs font-medium text-gray-500 uppercase mb-3">Sent Version</h3>
+            <h3 className="text-xs font-medium text-gray-500 uppercase mb-3">
+              {currentDraft.status === "saved" ? "Saved Review Version" : "Sent Version"}
+            </h3>
             <div className="space-y-2 text-sm">
               <div><span className="text-gray-500">To:</span> {currentDraft.sentTo}</div>
               {currentDraft.sentCc && <div><span className="text-gray-500">CC:</span> {currentDraft.sentCc}</div>}
@@ -263,7 +266,11 @@ export default function ReviewDraft() {
             {currentDraft.reviewedAt && (
               <div className="mt-3 text-xs text-gray-400">
                 Reviewed {formatDatetime(currentDraft.reviewedAt)}
-                {currentDraft.editsMade ? " (edited)" : " (approved as-is)"}
+                {currentDraft.status === "saved"
+                  ? " (saved without sending)"
+                  : currentDraft.editsMade
+                    ? " (edited)"
+                    : " (approved as-is)"}
               </div>
             )}
           </div>
@@ -314,6 +321,32 @@ export default function ReviewDraft() {
             <div className="flex items-center gap-3">
               {editMode ? (
                 <>
+                  <button
+                    disabled={isSubmitting}
+                    onClick={async () => {
+                      setIsSubmitting(true);
+                      setError(null);
+                      try {
+                        await postAction(`/api/review/drafts/${encodeURIComponent(String(draftId))}/edit-save`, {
+                          ...reviewerPayload(),
+                          to: editedTo,
+                          cc: editedCc || undefined,
+                          subject: editedSubject,
+                          body: editedBody,
+                          feedbackReasons,
+                          feedbackNote: feedbackNote.trim() || undefined,
+                        });
+                        router.push("/review");
+                      } catch (err) {
+                        setError(err instanceof Error ? err.message : "Failed to save");
+                      } finally {
+                        setIsSubmitting(false);
+                      }
+                    }}
+                    className="px-4 py-2 text-sm font-medium bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+                  >
+                    {isSubmitting ? "Saving..." : "Save Without Sending"}
+                  </button>
                   <button
                     disabled={isSubmitting}
                     onClick={async () => {

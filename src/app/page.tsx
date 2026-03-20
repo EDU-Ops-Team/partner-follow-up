@@ -140,6 +140,7 @@ function draftStatusBadge(status: string) {
     pending: "bg-yellow-100 text-yellow-800",
     approved: "bg-green-100 text-green-800",
     edited: "bg-blue-100 text-blue-800",
+    saved: "bg-indigo-100 text-indigo-800",
     rejected: "bg-red-100 text-red-800",
     auto_sent: "bg-gray-100 text-gray-600",
     expired: "bg-gray-100 text-gray-500",

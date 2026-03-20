@@ -278,6 +278,7 @@ export default defineSchema({
       v.literal("pending"),
       v.literal("approved"),
       v.literal("edited"),
+      v.literal("saved"),
       v.literal("rejected"),
       v.literal("auto_sent"),
       v.literal("expired")
