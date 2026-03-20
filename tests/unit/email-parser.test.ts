@@ -39,6 +39,7 @@ describe("extractSiteInfo", () => {
 
   it("extracts address with apartment/unit", () => {
     const result = extractSiteInfo(makeEmail({
+      subject: "New site request",
       body: "Site at 456 Oak Avenue, Apt 3B, Chicago, IL 60601",
     }));
     expect(result).not.toBeNull();
@@ -84,6 +85,40 @@ describe("extractSiteInfo", () => {
     }));
     expect(result).not.toBeNull();
     expect(result!.address).toContain("995 Oak Creek Drive");
+  });
+
+  it("rejects archive discovery when the only address is in a signature block", () => {
+    const result = extractSiteInfo(
+      makeEmail({
+        subject: "Re: permit follow up",
+        body: `Thanks,\n\nThomas Barrow\nCDS\n16775 Addison Road\nAddison, TX 75001`,
+      }),
+      { requireStrongSiteIntent: true }
+    );
+    expect(result).toBeNull();
+  });
+
+  it("rejects weak archive discovery when an address is mentioned without site intent", () => {
+    const result = extractSiteInfo(
+      makeEmail({
+        subject: "Re: Friday sync",
+        body: `Please send the revised insurance packet to 123 Main Street, Springfield, IL 62701 when you have a chance.`,
+      }),
+      { requireStrongSiteIntent: true }
+    );
+    expect(result).toBeNull();
+  });
+
+  it("still accepts archive discovery when subject and body clearly identify a site", () => {
+    const result = extractSiteInfo(
+      makeEmail({
+        subject: "New site: 205 Park Road, Burlingame, CA 94010",
+        body: `Please schedule the following site for LiDAR and inspection:\n205 Park Road, Burlingame, CA 94010`,
+      }),
+      { requireStrongSiteIntent: true }
+    );
+    expect(result).not.toBeNull();
+    expect(result!.address).toContain("205 Park Road");
   });
 });
 

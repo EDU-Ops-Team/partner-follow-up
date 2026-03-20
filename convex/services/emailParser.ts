@@ -1,6 +1,10 @@
 import type { ParsedEmail, ExtractedSiteInfo } from "../lib/types";
 import { logger } from "../lib/logger";
 
+type ExtractSiteInfoOptions = {
+  requireStrongSiteIntent?: boolean;
+};
+
 function extractEmail(str: string): string {
   const match = str.match(/<([^>]+)>/);
   return match ? match[1].trim().toLowerCase() : str.trim().toLowerCase();
@@ -23,6 +27,10 @@ function findAddressMatches(text: string): string[] {
     if (match) matches.push(match[1].trim());
   }
   return matches;
+}
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function scoreAddressCandidate(address: string): number {
@@ -51,6 +59,97 @@ function stripQuotedContent(text: string): string {
   return lines.join("\n");
 }
 
+function stripSignatureContent(text: string): string {
+  const lines = text.split(/\r?\n/);
+  const signatureStartPatterns = [
+    /^thanks[,!-\s]*$/i,
+    /^thank you[,!-\s]*$/i,
+    /^best[,!-\s]*$/i,
+    /^best regards[,!-\s]*$/i,
+    /^regards[,!-\s]*$/i,
+    /^sincerely[,!-\s]*$/i,
+    /^sent from my/i,
+  ];
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const trimmed = lines[index].trim();
+    if (!trimmed) {
+      continue;
+    }
+    if (signatureStartPatterns.some((pattern) => pattern.test(trimmed))) {
+      return lines.slice(0, index).join("\n");
+    }
+  }
+
+  return text;
+}
+
+function hasStrongSiteIntent(text: string): boolean {
+  return /\b(new site|site kickoff|site request|please schedule|schedule (?:the )?site|site below|for the following site|lidar|building inspection|inspection|sir|site initiation report)\b/i.test(text);
+}
+
+function hasSiteWorkflowContext(address: string, text: string): boolean {
+  const normalizedText = text.replace(/\s+/g, " ").trim();
+  if (!normalizedText) {
+    return false;
+  }
+
+  const addressPattern = new RegExp(escapeRegex(address), "i");
+  const match = normalizedText.match(addressPattern);
+  if (!match || match.index === undefined) {
+    return false;
+  }
+
+  const start = Math.max(0, match.index - 160);
+  const end = Math.min(normalizedText.length, match.index + address.length + 160);
+  const window = normalizedText.slice(start, end);
+
+  const positivePatterns = [
+    /\b(new site|site kickoff|site request|schedule (?:the )?site|site below|for the following site)\b/i,
+    /\b(lidar|building inspection|inspection|sir|site initiation report)\b/i,
+    /\b(schedule|scheduled|scheduling|kickoff|project site|property site)\b/i,
+  ];
+  const negativePatterns = [
+    /\b(send|mail|mailing|ship|shipping|deliver|delivery|invoice|insurance packet|w-9|tax form|signature)\b/i,
+    /\b(thanks|thank you|best regards|regards|sincerely)\b/i,
+  ];
+
+  return positivePatterns.some((pattern) => pattern.test(window)) &&
+    !negativePatterns.some((pattern) => pattern.test(window));
+}
+
+function scoreAddressInContext(address: string, text: string): number {
+  const normalizedText = text.replace(/\s+/g, " ").trim();
+  if (!normalizedText) {
+    return 0;
+  }
+
+  const addressPattern = new RegExp(escapeRegex(address), "i");
+  const match = normalizedText.match(addressPattern);
+  if (!match || match.index === undefined) {
+    return 0;
+  }
+
+  const start = Math.max(0, match.index - 120);
+  const end = Math.min(normalizedText.length, match.index + address.length + 120);
+  const window = normalizedText.slice(start, end);
+
+  let score = 0;
+  if (/\b(new site|site kickoff|site request|site below|for the following site|project site|property site|lidar|building inspection|inspection|sir|site initiation report|schedule|scheduled|scheduling)\b/i.test(window)) {
+    score += 80;
+  }
+  if (/\b(please schedule|need to schedule|would like to schedule|for the following site|site below)\b/i.test(window)) {
+    score += 30;
+  }
+  if (/\b(send|mail|mailing|ship|shipping|deliver|delivery|invoice|insurance packet|w-9|tax form)\b/i.test(window)) {
+    score -= 90;
+  }
+  if (/\b(signature|regards|thanks|best regards)\b/i.test(window)) {
+    score -= 60;
+  }
+  return score;
+}
+
 /**
  * Validate that an extracted string looks like a real street address.
  * Rejects time strings, names, and other false positives.
@@ -72,27 +171,57 @@ function isValidAddress(address: string): boolean {
   return true;
 }
 
-export function extractSiteInfo(email: ParsedEmail): ExtractedSiteInfo | null {
+export function extractSiteInfo(email: ParsedEmail, options: ExtractSiteInfoOptions = {}): ExtractedSiteInfo | null {
   const bodyWithoutQuotes = stripQuotedContent(email.body);
+  const bodyWithoutSignature = stripSignatureContent(bodyWithoutQuotes);
+  const requireStrongSiteIntent = options.requireStrongSiteIntent ?? false;
+
   const rawAddress = [
-    ...extractAddress(bodyWithoutQuotes).map((address) => ({
-      address,
-      score: scoreAddressCandidate(address) + 20,
-    })),
     ...extractAddress(email.subject).map((address) => ({
       address,
-      score: scoreAddressCandidate(address) + 10,
+      score: scoreAddressCandidate(address) + 120 + scoreAddressInContext(address, email.subject),
+      source: "subject",
+    })),
+    ...extractAddress(bodyWithoutSignature).map((address) => ({
+      address,
+      score: scoreAddressCandidate(address) + 70 + scoreAddressInContext(address, bodyWithoutSignature),
+      source: "body_without_signature",
+    })),
+    ...extractAddress(bodyWithoutQuotes).map((address) => ({
+      address,
+      score: scoreAddressCandidate(address) + 30 + scoreAddressInContext(address, bodyWithoutQuotes),
+      source: "body_without_quotes",
     })),
     ...extractAddress(email.body).map((address) => ({
       address,
-      score: scoreAddressCandidate(address),
+      score: scoreAddressCandidate(address) + scoreAddressInContext(address, email.body),
+      source: "raw_body",
     })),
   ]
-    .sort((a, b) => b.score - a.score)[0]?.address ?? null;
-  const address = rawAddress && isValidAddress(rawAddress) ? rawAddress : null;
+    .sort((a, b) => b.score - a.score)[0] ?? null;
+  const address = rawAddress && isValidAddress(rawAddress.address) ? rawAddress : null;
   if (!address) {
     logger.warn("Could not extract address from email", { messageId: email.messageId, subject: email.subject });
     return null;
+  }
+
+  if (requireStrongSiteIntent) {
+    const intentSources = [email.subject, bodyWithoutSignature, bodyWithoutQuotes].filter(Boolean).join("\n");
+    const strongIntent =
+      hasStrongSiteIntent(intentSources) ||
+      hasSiteWorkflowContext(rawAddress.address, intentSources) ||
+      (rawAddress.source === "subject" && hasStrongSiteIntent(email.subject));
+
+    if (!strongIntent) {
+      logger.warn("Rejected weak site extraction from email", {
+        messageId: email.messageId,
+        subject: email.subject,
+        address: rawAddress.address,
+        source: rawAddress.source,
+        score: rawAddress.score,
+      });
+      return null;
+    }
   }
 
   const systemEmail = "auth.permitting@trilogy.com";
@@ -104,7 +233,7 @@ export function extractSiteInfo(email: ParsedEmail): ExtractedSiteInfo | null {
   const responsiblePartyEmail = extractEmail(rpAddr);
   const responsiblePartyName = extractName(rpAddr) || responsiblePartyEmail;
 
-  return { address: address.trim(), responsiblePartyEmail, responsiblePartyName };
+  return { address: address.address.trim(), responsiblePartyEmail, responsiblePartyName };
 }
 
 export function isTriggerEmail(email: ParsedEmail, expectedSender: string): boolean {

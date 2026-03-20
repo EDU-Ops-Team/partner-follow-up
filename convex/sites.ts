@@ -347,7 +347,7 @@ export const discoverFromArchive = internalMutation({
 
       eligible += 1;
       const parsed = toParsedEmail(message);
-      const extracted = extractSiteInfo(parsed);
+      const extracted = extractSiteInfo(parsed, { requireStrongSiteIntent: true });
       if (!extracted) {
         noAddress += 1;
         continue;
