@@ -184,6 +184,8 @@ export default defineSchema({
     reviewedBy: v.string(),
     reviewedAt: v.number(),
     appliedAt: v.number(),
+    learningAppliedAt: v.optional(v.number()),
+    learningAppliedBy: v.optional(v.string()),
   })
     .index("by_classificationId", ["classificationId"])
     .index("by_reviewedAt", ["reviewedAt"]),
@@ -530,4 +532,6 @@ export default defineSchema({
     .index("by_status", ["status"])
     .index("by_siteId", ["siteId"]),
 });
+
+
 

@@ -1069,10 +1069,17 @@ function AdminTrackingControls() {
           siteCount?: number;
           tasksCreated?: number;
           tasksUpdated?: number;
-          reviewed?: number;
-          confirmed?: number;
-          needsReview?: number;
-          invalidDeleted?: number;
+          siteFeedback?: {
+            reviewed?: number;
+            confirmed?: number;
+            needsReview?: number;
+            invalidDeleted?: number;
+          };
+          inboundFeedback?: {
+            reviewed?: number;
+            linked?: number;
+            unmatched?: number;
+          };
         };
       };
 
@@ -1090,7 +1097,7 @@ function AdminTrackingControls() {
         );
       } else if (type === "site_feedback") {
         setMessage(
-          `Site feedback applied. Reviewed ${payload.result?.reviewed ?? 0}; confirmed ${payload.result?.confirmed ?? 0}; needs review ${payload.result?.needsReview ?? 0}; removed ${payload.result?.invalidDeleted ?? 0} invalid site(s).`
+          `Feedback applied. Sites reviewed ${payload.result?.siteFeedback?.reviewed ?? 0}; confirmed ${payload.result?.siteFeedback?.confirmed ?? 0}; needs review ${payload.result?.siteFeedback?.needsReview ?? 0}; removed ${payload.result?.siteFeedback?.invalidDeleted ?? 0} invalid site(s). Inbound labels submitted ${payload.result?.inboundFeedback?.reviewed ?? 0}; linked ${payload.result?.inboundFeedback?.linked ?? 0}; unmatched ${payload.result?.inboundFeedback?.unmatched ?? 0}.`
         );
       } else {
         setMessage(
@@ -1147,7 +1154,7 @@ function AdminTrackingControls() {
             disabled={running !== null}
             className="rounded-md bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {running === "site_feedback" ? "Applying..." : "Apply Site Feedback"}
+            {running === "site_feedback" ? "Applying..." : "Apply Feedback"}
           </button>
         </div>
       </div>
@@ -1186,6 +1193,7 @@ export default function Dashboard() {
     </main>
   );
 }
+
 
 
 

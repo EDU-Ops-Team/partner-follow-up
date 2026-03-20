@@ -81,10 +81,6 @@ export const getInboundReviewQueue = query({
       ctx.db.query("emailClassificationFeedback").withIndex("by_reviewedAt").order("desc").collect(),
     ]);
 
-    const pending = allClassifications
-      .filter((classification) => classification.matchedSiteIds.length === 0 && classification.status !== "archived")
-      .slice(0, cappedLimit);
-
     const latestFeedbackByClassificationId = new Map();
     for (const feedback of allFeedback) {
       const key = String(feedback.classificationId);
@@ -119,6 +115,14 @@ export const getInboundReviewQueue = query({
     );
 
     const feedbackClassificationIds = new Set(Array.from(latestFeedbackByClassificationId.keys()));
+    const pending = allClassifications
+      .filter((classification) =>
+        classification.matchedSiteIds.length === 0 &&
+        classification.status !== "archived" &&
+        !feedbackClassificationIds.has(String(classification._id))
+      )
+      .slice(0, cappedLimit);
+
     const archived = allClassifications
       .filter((classification) =>
         classification.status === "archived" &&
@@ -246,6 +250,30 @@ export const applyFeedback = mutation({
   },
 });
 
+export const applyReviewedFeedback = internalMutation({
+  args: {
+    appliedBy: v.optional(v.string()),
+  },
+  handler: async (ctx, { appliedBy }) => {
+    const now = Date.now();
+    const feedback = await ctx.db.query("emailClassificationFeedback").collect();
+    const pending = feedback.filter((item) => !item.learningAppliedAt);
+
+    for (const item of pending) {
+      await ctx.db.patch(item._id, {
+        learningAppliedAt: now,
+        learningAppliedBy: appliedBy,
+      });
+    }
+
+    return {
+      reviewed: pending.length,
+      linked: pending.filter((item) => item.correctedMatchedSiteIds.length > 0).length,
+      unmatched: pending.filter((item) => item.correctedMatchedSiteIds.length === 0).length,
+    };
+  },
+});
+
 export const getById = query({
   args: { id: v.id("emailClassifications"), apiKey: v.string() },
   handler: async (ctx, { id, apiKey }) => {
@@ -342,5 +370,6 @@ export const updateStatus = internalMutation({
     await ctx.db.patch(id, updates);
   },
 });
+
 
 

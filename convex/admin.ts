@@ -45,10 +45,17 @@ type TriggerCheckResult =
     }
   | {
       type: "site_feedback";
-      reviewed: number;
-      confirmed: number;
-      needsReview: number;
-      invalidDeleted: number;
+      siteFeedback: {
+        reviewed: number;
+        confirmed: number;
+        needsReview: number;
+        invalidDeleted: number;
+      };
+      inboundFeedback: {
+        reviewed: number;
+        linked: number;
+        unmatched: number;
+      };
     };
 
 function requireApiKey(apiKey: string) {
@@ -117,14 +124,20 @@ export const triggerCheck = action({
     }
 
     if (type === "site_feedback") {
+      const siteFeedback = await ctx.runMutation(internal.sites.applyDispositionFeedback, {
+        appliedBy: reviewerEmail,
+      });
+      const inboundFeedback = await ctx.runMutation(internal.emailClassifications.applyReviewedFeedback, {
+        appliedBy: reviewerEmail,
+      });
       return {
         type,
-        ...(await ctx.runMutation(internal.sites.applyDispositionFeedback, {
-          appliedBy: reviewerEmail,
-        })),
+        siteFeedback,
+        inboundFeedback,
       };
     }
 
     return (await ctx.runAction(internal.checkCompletion.run, { includeAll: true })) as TriggerRunResult;
   },
 });
+
