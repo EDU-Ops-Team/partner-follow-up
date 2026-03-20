@@ -105,8 +105,15 @@ function confidenceBadge(confidence: number) {
 }
 
 function methodBadge(method: string) {
+  const styles =
+    method === "rule"
+      ? "bg-gray-100 text-gray-600"
+      : method === "reviewed"
+        ? "bg-emerald-100 text-emerald-700"
+        : "bg-indigo-100 text-indigo-700";
+
   return (
-    <span className={`text-xs px-1.5 py-0.5 rounded ${method === "rule" ? "bg-gray-100 text-gray-600" : "bg-indigo-100 text-indigo-700"}`}>
+    <span className={`text-xs px-1.5 py-0.5 rounded ${styles}`}>
       {method}
     </span>
   );
@@ -682,15 +689,63 @@ function SitesView() {
 // ── Inbound Feed (unmatched only) ──
 
 function InboundFeed() {
-  const [classifications, setClassifications] = useState<Doc<"emailClassifications">[] | null>(null);
+  const [queue, setQueue] = useState<{
+    pending: Doc<"emailClassifications">[];
+    reviewed: Array<{
+      dispositionStatus: "archived" | "linked" | "unmatched";
+      classification: Doc<"emailClassifications">;
+      feedback: {
+        correctedClassificationType: string;
+        note?: string;
+        reviewedBy: string;
+        reviewedAt: number;
+      } | null;
+      site: {
+        _id: Id<"sites">;
+        fullAddress?: string;
+        siteAddress: string;
+      } | null;
+    }>;
+    insights: {
+      pendingCount: number;
+      linkedCount: number;
+      unmatchedReviewedCount: number;
+      archivedCount: number;
+      topCorrectedLabels: Array<{ label: string; count: number }>;
+    };
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const siteList = useQuery(api.sites.list);
 
   async function load() {
     const res = await fetch("/api/dashboard/inbound?limit=100", { cache: "no-store" });
     if (!res.ok) throw new Error(`Request failed (${res.status})`);
-    const payload = (await res.json()) as { classifications: Doc<"emailClassifications">[] };
-    setClassifications(payload.classifications);
+    const payload = await res.json() as {
+      pending: Doc<"emailClassifications">[];
+      reviewed: Array<{
+        dispositionStatus: "archived" | "linked" | "unmatched";
+        classification: Doc<"emailClassifications">;
+        feedback: {
+          correctedClassificationType: string;
+          note?: string;
+          reviewedBy: string;
+          reviewedAt: number;
+        } | null;
+        site: {
+          _id: Id<"sites">;
+          fullAddress?: string;
+          siteAddress: string;
+        } | null;
+      }>;
+      insights: {
+        pendingCount: number;
+        linkedCount: number;
+        unmatchedReviewedCount: number;
+        archivedCount: number;
+        topCorrectedLabels: Array<{ label: string; count: number }>;
+      };
+    };
+    setQueue(payload);
   }
 
   useEffect(() => {
@@ -707,7 +762,7 @@ function InboundFeed() {
     };
   }, []);
 
-  if (classifications === null && !error) {
+  if (queue === null && !error) {
     return <div className="text-gray-400 py-8 text-center">Loading inbound...</div>;
   }
 
@@ -715,24 +770,119 @@ function InboundFeed() {
     return <div className="text-red-600 py-8 text-center">{error}</div>;
   }
 
-  if ((classifications ?? []).length === 0) {
+  const pending = queue?.pending ?? [];
+  const reviewed = queue?.reviewed ?? [];
+  const reviewedGroups = (["archived", "linked", "unmatched"] as const)
+    .map((status) => ({
+      status,
+      items: reviewed.filter((item) => item.dispositionStatus === status),
+    }))
+    .filter((group) => group.items.length > 0);
+
+  const dispositionLabels: Record<"archived" | "linked" | "unmatched", string> = {
+    archived: "Archived",
+    linked: "Linked",
+    unmatched: "Unmatched",
+  };
+
+  if (pending.length === 0 && reviewed.length === 0) {
     return (
       <div className="bg-white border border-gray-200 rounded-lg px-4 py-8 text-center text-gray-400">
-        No unmatched inbound emails
+        No inbound review items
       </div>
     );
   }
 
   return (
-    <div className="space-y-2">
-      {(classifications ?? []).map((c) => (
-        <InboundCard
-          key={c._id}
-          classification={c}
-          sites={siteList ?? []}
-          onRefresh={load}
-          onDismiss={() => setClassifications((prev) => (prev ?? []).filter((item) => item._id !== c._id))}
-        />
+    <div className="space-y-4">
+      {queue && (
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+          <div className="rounded-lg border border-gray-200 bg-white p-4">
+            <div className="text-xs uppercase tracking-wide text-gray-500">Pending</div>
+            <div className="mt-2 text-2xl font-semibold text-gray-900">{queue.insights.pendingCount}</div>
+          </div>
+          <div className="rounded-lg border border-gray-200 bg-white p-4">
+            <div className="text-xs uppercase tracking-wide text-gray-500">Linked</div>
+            <div className="mt-2 text-2xl font-semibold text-gray-900">{queue.insights.linkedCount}</div>
+          </div>
+          <div className="rounded-lg border border-gray-200 bg-white p-4">
+            <div className="text-xs uppercase tracking-wide text-gray-500">Reviewed Unmatched</div>
+            <div className="mt-2 text-2xl font-semibold text-gray-900">{queue.insights.unmatchedReviewedCount}</div>
+          </div>
+          <div className="rounded-lg border border-gray-200 bg-white p-4">
+            <div className="text-xs uppercase tracking-wide text-gray-500">Archived</div>
+            <div className="mt-2 text-2xl font-semibold text-gray-900">{queue.insights.archivedCount}</div>
+          </div>
+          {queue.insights.topCorrectedLabels.length > 0 && (
+            <div className="rounded-lg border border-gray-200 bg-white p-4 md:col-span-4">
+              <div className="text-xs uppercase tracking-wide text-gray-500">Top Corrected Labels</div>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {queue.insights.topCorrectedLabels.map((item) => (
+                  <span key={item.label} className="inline-flex items-center gap-2 rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-700">
+                    <span>{item.label.replace(/_/g, " ")}</span>
+                    <span className="font-semibold text-gray-900">{item.count}</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {pending.length > 0 && (
+        <section className="space-y-2">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-gray-900">Pending Review</h3>
+            <span className="text-xs text-gray-500">{pending.length}</span>
+          </div>
+          {pending.map((classification) => (
+            <InboundCard
+              key={classification._id}
+              classification={classification}
+              sites={siteList ?? []}
+              onRefresh={load}
+              onDismiss={() => setQueue((prev) => prev ? { ...prev, pending: prev.pending.filter((item) => item._id !== classification._id) } : prev)}
+            />
+          ))}
+        </section>
+      )}
+
+      {reviewedGroups.map((group) => (
+        <details key={group.status} className="rounded-lg border border-gray-200 bg-white" open={false}>
+          <summary className="cursor-pointer list-none px-4 py-3 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <span className="text-sm font-semibold text-gray-900">{dispositionLabels[group.status]}</span>
+              <span className="text-xs text-gray-500">{group.items.length}</span>
+            </div>
+            <span className="text-xs text-gray-400">Expand</span>
+          </summary>
+          <div className="border-t border-gray-100 p-4 space-y-3">
+            {group.items.map((item) => (
+              <div key={item.classification._id} className="rounded-lg border border-gray-200 bg-gray-50 p-4">
+                <div className="flex items-center justify-between gap-3 mb-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-medium text-sm">{extractSenderName(item.classification.from)}</span>
+                    {classificationBadge(item.feedback?.correctedClassificationType ?? item.classification.classificationType)}
+                    {item.feedback && methodBadge("reviewed")}
+                  </div>
+                  <span className="text-xs text-gray-400">
+                    {item.feedback ? timeAgo(item.feedback.reviewedAt) : timeAgo(item.classification.receivedAt)}
+                  </span>
+                </div>
+                <div className="text-sm font-medium text-gray-800 mb-1">{item.classification.subject}</div>
+                <div className="text-xs text-gray-500 line-clamp-2">{item.classification.bodyPreview}</div>
+                <div className="mt-2 flex flex-wrap gap-3 text-xs text-gray-500">
+                  <span>Status: {item.dispositionStatus}</span>
+                  {item.site && <span>Site: {item.site.fullAddress ?? item.site.siteAddress}</span>}
+                  {item.feedback?.reviewedBy && <span>Reviewed by {item.feedback.reviewedBy}</span>}
+                </div>
+                {item.feedback?.note && (
+                  <div className="mt-2 text-xs text-gray-600">{item.feedback.note}</div>
+                )}
+              </div>
+            ))}
+          </div>
+        </details>
       ))}
     </div>
   );
@@ -781,7 +931,7 @@ function InboundCard({
       }
 
       if (payload.removedFromUnmatched) {
-        onDismiss();
+        await onRefresh();
       } else {
         await onRefresh();
       }
@@ -809,7 +959,7 @@ function InboundCard({
             onClick={async () => {
               const res = await fetch(`/api/dashboard/inbound/${encodeURIComponent(String(classification._id))}/archive`, { method: "POST" });
               if (res.ok) {
-                onDismiss();
+                await onRefresh();
               }
             }}
             className="text-xs px-2 py-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors"
@@ -883,7 +1033,6 @@ function InboundCard({
     </div>
   );
 }
-
 function AdminTrackingControls() {
   const { data: session } = useSession();
   const role = (session?.user as { role?: "admin" | "reviewer" } | undefined)?.role;
@@ -1037,6 +1186,7 @@ export default function Dashboard() {
     </main>
   );
 }
+
 
 
 

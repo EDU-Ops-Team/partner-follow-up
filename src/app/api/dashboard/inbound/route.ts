@@ -15,11 +15,12 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Invalid limit" }, { status: 400 });
   }
 
-  const classifications = await getServerConvex().query(api.emailClassifications.listUnmatched, {
+  const queue = await getServerConvex().query(api.emailClassifications.getInboundReviewQueue, {
     apiKey: getServerApiKey(),
     limit,
   });
 
-  return NextResponse.json({ classifications });
+  return NextResponse.json(queue);
 }
+
 

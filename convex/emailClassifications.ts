@@ -70,6 +70,97 @@ export const listUnmatched = query({
   },
 });
 
+export const getInboundReviewQueue = query({
+  args: { apiKey: v.string(), limit: v.optional(v.number()) },
+  handler: async (ctx, { apiKey, limit }) => {
+    requireApiKey(apiKey);
+    const cappedLimit = Math.min(limit ?? 100, 500);
+
+    const [allClassifications, allFeedback] = await Promise.all([
+      ctx.db.query("emailClassifications").order("desc").collect(),
+      ctx.db.query("emailClassificationFeedback").withIndex("by_reviewedAt").order("desc").collect(),
+    ]);
+
+    const pending = allClassifications
+      .filter((classification) => classification.matchedSiteIds.length === 0 && classification.status !== "archived")
+      .slice(0, cappedLimit);
+
+    const latestFeedbackByClassificationId = new Map();
+    for (const feedback of allFeedback) {
+      const key = String(feedback.classificationId);
+      if (!latestFeedbackByClassificationId.has(key)) {
+        latestFeedbackByClassificationId.set(key, feedback);
+      }
+    }
+
+    const reviewedFromFeedback = await Promise.all(
+      Array.from(latestFeedbackByClassificationId.values())
+        .slice(0, cappedLimit)
+        .map(async (feedback) => {
+          const classification = await ctx.db.get(feedback.classificationId);
+          if (!classification) return null;
+
+          const primarySiteId = feedback.correctedMatchedSiteIds[0];
+          const site = primarySiteId ? await ctx.db.get(primarySiteId) as { _id: typeof primarySiteId; siteAddress: string; fullAddress?: string } | null : null;
+
+          return {
+            dispositionStatus: feedback.correctedMatchedSiteIds.length > 0 ? "linked" : "unmatched",
+            classification,
+            feedback,
+            site: site
+              ? {
+                  _id: site._id,
+                  siteAddress: site.siteAddress,
+                  fullAddress: site.fullAddress,
+                }
+              : null,
+          };
+        })
+    );
+
+    const feedbackClassificationIds = new Set(Array.from(latestFeedbackByClassificationId.keys()));
+    const archived = allClassifications
+      .filter((classification) =>
+        classification.status === "archived" &&
+        classification.matchedSiteIds.length === 0 &&
+        !feedbackClassificationIds.has(String(classification._id))
+      )
+      .slice(0, cappedLimit)
+      .map((classification) => ({
+        dispositionStatus: "archived",
+        classification,
+        feedback: null,
+        site: null,
+      }));
+
+    const reviewed = [...reviewedFromFeedback.filter((item): item is NonNullable<typeof item> => item !== null), ...archived];
+
+    const correctedLabelCounts = new Map();
+    for (const item of reviewed) {
+      if (!item.feedback) continue;
+      const key = item.feedback.correctedClassificationType;
+      correctedLabelCounts.set(key, (correctedLabelCounts.get(key) ?? 0) + 1);
+    }
+
+    const topCorrectedLabels = Array.from(correctedLabelCounts.entries())
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .slice(0, 5)
+      .map(([label, count]) => ({ label, count }));
+
+    return {
+      pending,
+      reviewed,
+      insights: {
+        pendingCount: pending.length,
+        linkedCount: reviewed.filter((item) => item.dispositionStatus === "linked").length,
+        unmatchedReviewedCount: reviewed.filter((item) => item.dispositionStatus === "unmatched").length,
+        archivedCount: reviewed.filter((item) => item.dispositionStatus === "archived").length,
+        topCorrectedLabels,
+      },
+    };
+  },
+});
+
 export const archive = mutation({
   args: { id: v.id("emailClassifications"), apiKey: v.string() },
   handler: async (ctx, { id, apiKey }) => {
@@ -251,3 +342,5 @@ export const updateStatus = internalMutation({
     await ctx.db.patch(id, updates);
   },
 });
+
+
