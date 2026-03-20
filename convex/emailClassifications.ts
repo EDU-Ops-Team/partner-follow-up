@@ -78,6 +78,83 @@ export const archive = mutation({
   },
 });
 
+export const applyFeedback = mutation({
+  args: {
+    id: v.id("emailClassifications"),
+    apiKey: v.string(),
+    correctedClassificationType: v.string(),
+    correctedMatchedSiteIds: v.array(v.id("sites")),
+    note: v.optional(v.string()),
+    reviewedBy: v.string(),
+  },
+  handler: async (ctx, { id, apiKey, correctedClassificationType, correctedMatchedSiteIds, note, reviewedBy }) => {
+    requireApiKey(apiKey);
+
+    const classification = await ctx.db.get(id);
+    if (!classification) {
+      throw new Error("Classification not found");
+    }
+
+    const appliedAt = Date.now();
+
+    await ctx.db.insert("emailClassificationFeedback", {
+      classificationId: classification._id,
+      gmailMessageId: classification.gmailMessageId,
+      threadId: classification.threadId,
+      originalClassificationType: classification.classificationType,
+      correctedClassificationType,
+      originalMatchedSiteIds: classification.matchedSiteIds,
+      correctedMatchedSiteIds,
+      note,
+      reviewedBy,
+      reviewedAt: appliedAt,
+      appliedAt,
+    });
+
+    await ctx.db.patch(classification._id, {
+      classificationType: correctedClassificationType,
+      matchedSiteIds: correctedMatchedSiteIds,
+      status: "classified",
+      action: "pending",
+      decisionLogId: undefined,
+    });
+
+    const thread = await ctx.db
+      .query("emailThreads")
+      .withIndex("by_gmailThreadId", (q) => q.eq("gmailThreadId", classification.threadId))
+      .first();
+
+    if (thread) {
+      await ctx.db.patch(thread._id, {
+        linkedSiteIds: Array.from(new Set([...thread.linkedSiteIds, ...correctedMatchedSiteIds])),
+      });
+    }
+
+    for (const siteId of correctedMatchedSiteIds) {
+      const site = await ctx.db.get(siteId);
+      if (!site) continue;
+
+      const triggerEmail = {
+        emailId: classification.gmailMessageId,
+        threadId: classification.threadId,
+        messageId: classification.rfcMessageId ?? classification.gmailMessageId,
+        receivedAt: classification.receivedAt,
+      };
+      const existingTriggers = site.triggerEmails ?? [];
+      if (!existingTriggers.some((entry) => entry.emailId === triggerEmail.emailId)) {
+        await ctx.db.patch(siteId, {
+          triggerEmails: [...existingTriggers, triggerEmail],
+        });
+      }
+    }
+
+    return {
+      ok: true,
+      removedFromUnmatched: correctedMatchedSiteIds.length > 0,
+    };
+  },
+});
+
 export const getById = query({
   args: { id: v.id("emailClassifications"), apiKey: v.string() },
   handler: async (ctx, { id, apiKey }) => {

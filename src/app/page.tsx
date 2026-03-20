@@ -84,6 +84,20 @@ function classificationBadge(type: string) {
   );
 }
 
+const CLASSIFICATION_OPTIONS = [
+  "vendor_scheduling",
+  "vendor_completion",
+  "vendor_question",
+  "vendor_invoice",
+  "government_permit",
+  "government_zoning",
+  "inspection_report",
+  "internal_fyi",
+  "internal_action_needed",
+  "auto_reply",
+  "unknown",
+] as const;
+
 function confidenceBadge(confidence: number) {
   const pct = Math.round(confidence * 100);
   const color = confidence >= 0.9 ? "text-green-600" : confidence >= 0.7 ? "text-yellow-600" : "text-red-500";
@@ -670,15 +684,20 @@ function SitesView() {
 function InboundFeed() {
   const [classifications, setClassifications] = useState<Doc<"emailClassifications">[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const siteList = useQuery(api.sites.list);
+
+  async function load() {
+    const res = await fetch("/api/dashboard/inbound?limit=100", { cache: "no-store" });
+    if (!res.ok) throw new Error(`Request failed (${res.status})`);
+    const payload = (await res.json()) as { classifications: Doc<"emailClassifications">[] };
+    setClassifications(payload.classifications);
+  }
 
   useEffect(() => {
     let active = true;
     (async () => {
       try {
-        const res = await fetch("/api/dashboard/inbound?limit=100", { cache: "no-store" });
-        if (!res.ok) throw new Error(`Request failed (${res.status})`);
-        const payload = (await res.json()) as { classifications: Doc<"emailClassifications">[] };
-        if (active) setClassifications(payload.classifications);
+        await load();
       } catch (err) {
         if (active) setError(err instanceof Error ? err.message : "Failed to load inbound");
       }
@@ -707,38 +726,160 @@ function InboundFeed() {
   return (
     <div className="space-y-2">
       {(classifications ?? []).map((c) => (
-        <div key={c._id} className="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-sm">
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-2">
-              <span className="font-medium text-sm">{extractSenderName(c.from)}</span>
-              {classificationBadge(c.classificationType)}
-              {methodBadge(c.classificationMethod)}
-              {confidenceBadge(c.confidence)}
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-gray-400">{timeAgo(c.receivedAt)}</span>
-              <button
-                onClick={async () => {
-                  const res = await fetch(`/api/dashboard/inbound/${encodeURIComponent(String(c._id))}/archive`, { method: "POST" });
-                  if (res.ok) {
-                    setClassifications((prev) => (prev ?? []).filter((item) => item._id !== c._id));
-                  }
-                }}
-                className="text-xs px-2 py-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors"
-                title="Archive"
-              >
-                Dismiss
-              </button>
-            </div>
-          </div>
-          <div className="text-sm font-medium text-gray-800 mb-1">{c.subject}</div>
-          <div className="text-xs text-gray-500 line-clamp-2">{c.bodyPreview}</div>
-          <div className="flex items-center gap-3 mt-2 text-xs text-gray-400">
-            <span>Status: {c.status}</span>
-            {c.matchedVendorId && <span>Partner matched</span>}
-          </div>
-        </div>
+        <InboundCard
+          key={c._id}
+          classification={c}
+          sites={siteList ?? []}
+          onRefresh={load}
+          onDismiss={() => setClassifications((prev) => (prev ?? []).filter((item) => item._id !== c._id))}
+        />
       ))}
+    </div>
+  );
+}
+
+function InboundCard({
+  classification,
+  sites,
+  onRefresh,
+  onDismiss,
+}: {
+  classification: Doc<"emailClassifications">;
+  sites: Array<{
+    _id: Id<"sites">;
+    fullAddress?: string;
+    siteAddress: string;
+  }>;
+  onRefresh: () => Promise<void>;
+  onDismiss: () => void;
+}) {
+  const [correctedClassificationType, setCorrectedClassificationType] = useState(classification.classificationType);
+  const [correctedSiteId, setCorrectedSiteId] = useState("");
+  const [note, setNote] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function applyFeedback() {
+    setSaving(true);
+    setMessage(null);
+    setError(null);
+    try {
+      const res = await fetch(`/api/dashboard/inbound/${encodeURIComponent(String(classification._id))}/feedback`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          correctedClassificationType,
+          correctedSiteId: correctedSiteId || undefined,
+          note: note || undefined,
+        }),
+      });
+
+      const payload = await res.json() as { error?: string; removedFromUnmatched?: boolean };
+      if (!res.ok) {
+        throw new Error(payload.error ?? `Request failed (${res.status})`);
+      }
+
+      if (payload.removedFromUnmatched) {
+        onDismiss();
+      } else {
+        await onRefresh();
+      }
+
+      setMessage(payload.removedFromUnmatched ? "Feedback applied and email linked to a site." : "Feedback applied.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to apply feedback");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-sm">
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2">
+          <span className="font-medium text-sm">{extractSenderName(classification.from)}</span>
+          {classificationBadge(classification.classificationType)}
+          {methodBadge(classification.classificationMethod)}
+          {confidenceBadge(classification.confidence)}
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-400">{timeAgo(classification.receivedAt)}</span>
+          <button
+            onClick={async () => {
+              const res = await fetch(`/api/dashboard/inbound/${encodeURIComponent(String(classification._id))}/archive`, { method: "POST" });
+              if (res.ok) {
+                onDismiss();
+              }
+            }}
+            className="text-xs px-2 py-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors"
+            title="Archive"
+          >
+            Dismiss
+          </button>
+        </div>
+      </div>
+      <div className="text-sm font-medium text-gray-800 mb-1">{classification.subject}</div>
+      <div className="text-xs text-gray-500 line-clamp-2">{classification.bodyPreview}</div>
+      <div className="flex items-center gap-3 mt-2 text-xs text-gray-400">
+        <span>Status: {classification.status}</span>
+        {classification.matchedVendorId && <span>Partner matched</span>}
+      </div>
+
+      <div className="mt-4 rounded-md border border-gray-200 bg-gray-50 p-3 space-y-3">
+        <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Inbound Feedback</div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <label className="text-sm text-gray-700">
+            <span className="mb-1 block text-xs font-medium text-gray-500">Correct Label</span>
+            <select
+              value={correctedClassificationType}
+              onChange={(e) => setCorrectedClassificationType(e.target.value)}
+              className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
+            >
+              {CLASSIFICATION_OPTIONS.map((option) => (
+                <option key={option} value={option}>{option.replace(/_/g, " ")}</option>
+              ))}
+            </select>
+          </label>
+
+          <label className="text-sm text-gray-700">
+            <span className="mb-1 block text-xs font-medium text-gray-500">Associate Site</span>
+            <select
+              value={correctedSiteId}
+              onChange={(e) => setCorrectedSiteId(e.target.value)}
+              className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
+            >
+              <option value="">Leave unmatched</option>
+              {sites.map((site) => (
+                <option key={site._id} value={String(site._id)}>
+                  {site.fullAddress ?? site.siteAddress}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <label className="block text-sm text-gray-700">
+          <span className="mb-1 block text-xs font-medium text-gray-500">Feedback Note</span>
+          <textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            rows={2}
+            placeholder="Why was this label or site association corrected?"
+            className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
+          />
+        </label>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={applyFeedback}
+            disabled={saving}
+            className="rounded-md bg-gray-900 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-black disabled:opacity-50"
+          >
+            {saving ? "Applying..." : "Apply Feedback"}
+          </button>
+          {message && <span className="text-sm text-green-700">{message}</span>}
+          {error && <span className="text-sm text-red-600">{error}</span>}
+        </div>
+      </div>
     </div>
   );
 }

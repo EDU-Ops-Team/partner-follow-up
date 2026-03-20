@@ -172,6 +172,22 @@ export default defineSchema({
     .index("by_status", ["status"])
     .index("by_classificationType", ["classificationType"]),
 
+  emailClassificationFeedback: defineTable({
+    classificationId: v.id("emailClassifications"),
+    gmailMessageId: v.string(),
+    threadId: v.string(),
+    originalClassificationType: v.string(),
+    correctedClassificationType: v.string(),
+    originalMatchedSiteIds: v.array(v.id("sites")),
+    correctedMatchedSiteIds: v.array(v.id("sites")),
+    note: v.optional(v.string()),
+    reviewedBy: v.string(),
+    reviewedAt: v.number(),
+    appliedAt: v.number(),
+  })
+    .index("by_classificationId", ["classificationId"])
+    .index("by_reviewedAt", ["reviewedAt"]),
+
   emailThreads: defineTable({
     gmailThreadId: v.string(),
     subject: v.string(),
