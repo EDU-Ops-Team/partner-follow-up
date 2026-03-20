@@ -510,3 +510,75 @@ export const adminDelete = mutation({
   },
 });
 
+export const adminDeleteCascade = mutation({
+  args: { id: v.id("sites") },
+  handler: async (ctx, { id }) => {
+    const site = await ctx.db.get(id);
+    if (!site) {
+      throw new Error("Site not found");
+    }
+
+    const [tasks, taskEvents, taskSignals, processedMessages, auditLogs, draftEmails, classifications, threads] =
+      await Promise.all([
+        ctx.db.query("tasks").withIndex("by_siteId", (q) => q.eq("siteId", id)).collect(),
+        ctx.db.query("taskEvents").withIndex("by_siteId", (q) => q.eq("siteId", id)).collect(),
+        ctx.db.query("taskSignals").withIndex("by_siteId", (q) => q.eq("siteId", id)).collect(),
+        ctx.db.query("processedMessages").withIndex("by_siteId", (q) => q.eq("siteId", id)).collect(),
+        ctx.db.query("auditLogs").withIndex("by_siteId", (q) => q.eq("siteId", id)).collect(),
+        ctx.db.query("draftEmails").withIndex("by_siteId", (q) => q.eq("siteId", id)).collect(),
+        ctx.db.query("emailClassifications").collect(),
+        ctx.db.query("emailThreads").collect(),
+      ]);
+
+    for (const draft of draftEmails) {
+      await ctx.db.patch(draft._id, { siteId: undefined });
+    }
+
+    for (const classification of classifications) {
+      if (!classification.matchedSiteIds.includes(id)) {
+        continue;
+      }
+      await ctx.db.patch(classification._id, {
+        matchedSiteIds: classification.matchedSiteIds.filter((siteId) => siteId !== id),
+      });
+    }
+
+    for (const thread of threads) {
+      if (!thread.linkedSiteIds.includes(id)) {
+        continue;
+      }
+      await ctx.db.patch(thread._id, {
+        linkedSiteIds: thread.linkedSiteIds.filter((siteId) => siteId !== id),
+      });
+    }
+
+    for (const signal of taskSignals) {
+      await ctx.db.delete(signal._id);
+    }
+    for (const event of taskEvents) {
+      await ctx.db.delete(event._id);
+    }
+    for (const task of tasks) {
+      await ctx.db.delete(task._id);
+    }
+    for (const processed of processedMessages) {
+      await ctx.db.delete(processed._id);
+    }
+    for (const log of auditLogs) {
+      await ctx.db.delete(log._id);
+    }
+
+    await ctx.db.delete(id);
+
+    return {
+      deletedSiteId: id,
+      deletedTaskCount: tasks.length,
+      deletedTaskEventCount: taskEvents.length,
+      deletedTaskSignalCount: taskSignals.length,
+      deletedProcessedMessageCount: processedMessages.length,
+      deletedAuditLogCount: auditLogs.length,
+      unlinkedDraftCount: draftEmails.length,
+    };
+  },
+});
+
