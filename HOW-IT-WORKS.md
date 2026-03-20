@@ -1,132 +1,316 @@
-# Vendor Follow Up — How It Works
+# Partner Follow Up - How It Works
 
 ## What It Does
 
-Vendor Follow Up is an automated agent that monitors LiDAR scanning and Building Inspection scheduling for Alpha Schools sites. When a trigger email arrives, the system tracks the site through three phases — scheduling, completion, and resolution — sending reminders via Google Chat and email to the right people until everything is done.
+Partner Follow Up is an operations system for EDU Ops. It does three related jobs:
 
-## The Three Phases
+1. Tracks site work across standard partner tasks such as SIR, LiDAR Scan, and Building Inspection.
+2. Watches live inbound email involving `edu.ops@trilogy.com`, classifies it, and drafts replies for human review.
+3. Backfills historical Google Groups mail into a supervised archive so old threads can improve task history and detection quality over time.
 
-### Phase 1: Scheduling
+The system is no longer just a reminder bot for LiDAR and inspection. It is now a combined site tracker, supervised reply assistant, and learning loop.
 
-A trigger email from `zack.lamb@2hourlearning.com` kicks things off. The system extracts the site address and responsible party from the email, creates a tracking record, and starts checking every 2 business days whether:
+## The Main Operating Model
 
-- **LiDAR** has been scheduled (checked against Airtable)
-- **Building Inspection** has been scheduled (checked against Google Sheets)
+### Site records
 
-If either is missing, the system sends a reminder to Google Chat and emails the responsible party. Once both are scheduled, the site advances to the completion phase and a confirmation is posted to Chat.
+Each site is a tracked operating record in Convex. A site still has core tracking fields like:
 
-When an inspection date is found, **Steve Hehl (shehl@worksmith.com)** is automatically assigned as the inspection contact for report follow-ups.
+- LiDAR scheduling and job status
+- inspection scheduling and report due dates
+- responsible party and inspection contact
+- reminder counters and next-check timing
 
-### Phase 2: Completion
+But the primary site summary is now task-based instead of relying only on those raw fields.
 
-Now the system monitors whether the work is actually done:
+### Task model
 
-- **LiDAR scan** — Has the job status changed to "complete" in Airtable?
-- **Inspection report** — Has the report been received in Google Sheets?
+Each site carries a standard phase-one task set:
 
-Each milestone triggers a Chat notification. Follow-up reminders are **routed to the right person**:
+- `SIR`
+- `LiDAR Scan`
+- `Building Inspection`
 
-- **LiDAR not complete** — reminder email sent to the original responsible party
-- **Inspection report overdue** — reminder email sent to Steve Hehl (Worksmith) only, and only after the report due date has passed
-- If both are pending, each person gets their own targeted email
+New sites seed these tasks automatically in the `requested` state because the kickoff email already implies that the work has been requested.
 
-Report reminders are **not sent before the due date** — the system monitors silently until the deadline passes, then begins follow-ups every 2 business days.
+The supported task states are:
 
-Once both the LiDAR scan is complete and the report is received, the site is resolved.
+- `requested`
+- `scheduled`
+- `in_progress`
+- `in_review`
+- `completed`
+- `blocked`
+- `not_needed`
 
-### Phase 3: Resolved
+Site progress is calculated from task states, not from a single lifecycle badge. The dashboard progress bar is the average weighted progress across active tasks.
 
-The site is marked resolved with a timestamp. A final notification is posted to Google Chat. No further checks or reminders are sent.
+## How A Site Gets Created
 
-## How Checks Run
+There are now two main creation paths.
 
-Three cron jobs run continuously on the Convex backend:
+### 1. Live inbound trigger flow
 
-| Job | Frequency | What It Does |
-|-----|-----------|-------------|
-| **Check Email** | Every 15 minutes | Polls Gmail for new trigger emails, creates site records |
-| **Check Scheduling** | Every 30 minutes | Looks up LiDAR + Inspection status, sends scheduling reminders |
-| **Check Completion** | Every 30 minutes | Monitors LiDAR completion + report receipt, resolves sites |
+For live operations, inbound email is processed and linked into the system. When a message contains a strong site address and enough context, the system creates or updates the matching site record.
 
-All intervals between reminders are calculated in **business days** (skipping weekends and US federal holidays). The default check interval is 2 business days.
+### 2. Archive discovery flow
 
-On every check cycle, the system refreshes LiDAR job status and "Data as of" date from Airtable, so the dashboard always reflects the latest information.
+For historical Google Groups mail, the system first stores raw archived messages. If task-signal diagnostics show many `no_site_match` outcomes, admins can run archive-driven site discovery. That process:
 
-## How Address Matching Works
+- scans archived messages that look operationally relevant
+- extracts strong address candidates
+- creates missing site records when the address looks valid
+- seeds the standard M1 tasks for the new site
+- reruns task signal extraction against the expanded site list
 
-Site addresses from trigger emails are matched against Airtable and Google Sheets data using fuzzy matching. Addresses are first normalized (abbreviating "Street" to "St", "Avenue" to "Ave", etc.) and then compared using Levenshtein distance. A match requires 85% similarity or higher, which handles minor typos and formatting differences.
+This is how the system can learn from older group-inbox history without requiring everything to have been captured in the original live flow.
 
-## Where Data Lives
+## How Live Email Works
 
-| Data Source | What It Provides |
-|-------------|-----------------|
-| **Gmail** | Trigger emails that start tracking, outbound reminders |
-| **Airtable** (shared view) | LiDAR scheduling dates, job status, data-as-of date |
-| **Google Sheets** | Building Inspection dates, report due dates, report receipt status |
-| **Google Chat** (webhook) | All status notifications posted to a team space |
-| **Convex database** | Site tracking records, audit logs, sync state |
+The live email path is now a supervised reply workflow.
 
-## Who Gets Notified
+### Step 1: Inbound capture
 
-Reminders are routed based on responsibility:
+The system watches inbound mail where EDU Ops is involved and stores the message with thread context.
 
-| Scenario | Email Recipient | Chat |
-|----------|----------------|------|
-| LiDAR or Inspection not scheduled | Original responsible party | Combined message |
-| LiDAR scan not complete | Original responsible party | Combined message |
-| Inspection report overdue (past due date) | Steve Hehl (Worksmith) | Combined message |
-| Both LiDAR incomplete + report overdue | Each gets their own email | Combined message |
+### Step 2: Classification
 
-Google Chat always receives a single combined message for team visibility. Emails are targeted to the person responsible for that specific item.
+Each message is classified into an operational type such as:
 
-### Chat Notifications
-- **Scheduling Reminder** — Lists which items are still unscheduled, days since trigger, reminder count
-- **Both Scheduled** — Confirms LiDAR and Inspection dates, announces move to completion phase
-- **LiDAR Complete** — Confirms scan is done, waiting for report
-- **Report Reminder** — Report not yet received, shows due date if available
-- **Report Received** — Confirms report with link if available
-- **Site Resolved** — All items complete, site closed
+- partner scheduling
+- partner completion
+- partner question
+- partner invoice
+- internal action needed
+- internal FYI
+- unknown
 
-### Email Notifications
-- **Scheduling Reminder** — Sent to responsible party listing which items need scheduling
-- **LiDAR Completion Reminder** — Sent to responsible party when LiDAR scan is still pending
-- **Inspection Report Reminder** — Sent to Steve Hehl when report is past due date
+### Step 3: Decisioning
 
-## Dashboard
+Decision trees decide what should happen next:
 
-A web dashboard at the Vercel deployment URL shows each tracked site as a card with three sections:
+- generate a draft reply
+- wait for more information
+- escalate to a human
+- track context only
 
-**LiDAR**
-- Status (Scheduled / Complete / Not scheduled)
-- Scheduled date and time
-- Job status (from Airtable, refreshed every check cycle)
-- Data as of (from Airtable)
+### Step 4: Human review
 
-**Building Inspection**
-- Status (Scheduled / Not scheduled)
-- Inspection date and time
-- Report due date
-- Report status (Received with link / Pending)
+Draft replies go to the review queue. Reviewers can:
 
-**Tracking**
-- Responsible party (original, for LiDAR)
-- Inspection contact (Steve Hehl, for report follow-ups — shown when set)
-- Trigger date
-- Last outreach date
-- Total reminders sent
-- Next check date (or "Resolved")
+- approve and send
+- edit and send
+- reject
+
+The system stores the final outcome, edit distance, edit categories, and reviewer feedback reasons.
+
+### Step 5: Learning
+
+Review outcomes roll up into insights so the team can measure:
+
+- pass rate by classification type
+- average edit distance
+- common edit categories
+- reviewed examples behind each class
+
+This is the core supervised-learning loop for partner-facing replies.
+
+## How Historical Email Backfill Works
+
+Google Groups history is handled as a separate supervised pipeline.
+
+### Raw archive first
+
+Historical threads and messages are scraped from the Google Groups interface and stored as raw archive records.
+
+The system does not write directly from scraped history into live task state.
+
+### Task signal extraction second
+
+Archived messages are scanned for supported task signals. A task signal is a proposed state transition inferred from message evidence, for example:
+
+- a LiDAR job being scheduled
+- an inspection report being delivered
+- an SIR being sent
+
+Signals are attached to:
+
+- site
+- task type
+- proposed state
+- confidence
+- evidence snippet
+
+### Human review before apply
+
+Task signals appear on the `Task Signals` page for review. Reviewers can apply or reject them before they change live task history.
+
+This prevents noisy historical email from silently corrupting the task timeline.
+
+### Diagnostics
+
+The diagnostics table shows why a message did not become a signal. Common outcomes are:
+
+- `no_task_type`
+- `no_site_match`
+- `no_state`
+
+That table is used to improve detection rules instead of guessing where the detector is weak.
+
+## How Tracker Data Works
+
+The system still uses external operational sources for current site status.
+
+### LiDAR source
+
+LiDAR data comes from an Airtable shared view. The production path now reads the shared-view data directly instead of depending on private Airtable API access.
+
+The site tracker uses that source for fields like:
+
+- scheduled date and time
+- job status
+- data-as-of timestamp
+- model URL when available
+
+### Building Inspection source
+
+Inspection and report data comes from Google Sheets. The tracker continues to read:
+
+- inspection date
+- inspection time
+- report due date
+- report received status
+- report link
+
+### Freshness
+
+The dashboard now shows when tracking data was last pulled so reviewers can tell whether they are looking at fresh source-backed data or something that may be behind.
+
+Key freshness fields:
+
+- `trackingUpdatedAt`
+- `lidarLastCheckedAt`
+- `inspectionLastCheckedAt`
+
+## What The Dashboard Shows
+
+Each site card now has four important layers.
+
+### 1. Progress bar
+
+The top progress bar reflects weighted task completion across the site's active tasks.
+
+### 2. Task checklist
+
+Each site shows its current task states for:
+
+- `SIR`
+- `LiDAR Scan`
+- `Building Inspection`
+
+### 3. Tracking facts
+
+The tracker section still shows source-backed operational facts such as:
+
+- LiDAR status and scheduled time
+- inspection date and report due date
+- responsible party and inspection contact
+- source freshness timestamps
+
+### 4. Record Disposition
+
+Expanded site cards now include a site-record review control. Reviewers can mark a site as:
+
+- `Unreviewed`
+- `Confirmed`
+- `Needs review`
+- `Invalid`
+
+They can also leave a note.
+
+This feedback is specifically about whether the site record itself was created correctly from the email thread. It is separate from reply review and separate from task-signal review.
+
+## What Reviewers Are Teaching The System
+
+There are now three major human feedback surfaces.
+
+### 1. Draft review
+
+Reviewers teach the reply system whether the drafted email was good enough to send.
+
+### 2. Task signal review
+
+Reviewers teach the archive detector whether a historical message really implies a task transition.
+
+### 3. Site record disposition
+
+Reviewers teach the site-creation logic whether the system created the right record from the source thread.
+
+Together, these three feedback loops give the system the data needed to improve:
+
+- response quality
+- task-state inference quality
+- site creation quality
+
+## Admin Controls
+
+Admins can run operational jobs manually instead of waiting for cron windows.
+
+Current admin-triggered flows include:
+
+- scheduling refresh
+- completion refresh
+- full tracking refresh
+- task backfill
+- task signal extraction
+- archive-driven site discovery plus signal rerun
+
+These are intended for testing, cleanup, and controlled replay.
+
+## Prompt Management
+
+Prompt content now lives in markdown under `prompt-sources/`.
+
+The current model is:
+
+- humans edit markdown prompt files in team Git
+- `npm run prompts:sync` generates the deploy-safe TypeScript prompt library
+- Vercel and Convex deploy from the generated prompt code, not the markdown files directly
+
+This keeps prompt changes:
+
+- versioned
+- reviewable
+- easy for approved users to edit
+- safe for deployment
 
 ## Safeguards
 
-- **Duplicate prevention** — Trigger emails are deduplicated by message ID; notification flags prevent repeat alerts
-- **Audit logging** — Every state change is recorded with timestamp and details
-- **Retry with backoff** — External API calls (Gmail, Airtable, Sheets, Chat) retry up to 3 times with exponential backoff
-- **Graceful failures** — If one external service is down, other checks still proceed
-- **Reminder limits** — Up to 10 scheduling reminders and 10 report reminders per site
-- **Due date gating** — Report reminders only fire after the due date passes, not before
+The system now has several layered safeguards.
+
+- Human review remains in the loop for draft replies and task-signal application.
+- Site record disposition provides direct quality feedback on record creation.
+- Raw archive is stored before any historical message can affect live tasks.
+- Audit logs record major state changes and errors.
+- Tracking jobs now persist site updates before downstream side effects so source refresh is not lost if a notification step fails.
+- Source freshness timestamps make stale tracking visible.
+- Old or stale task signals are prevented from silently overwriting newer task state.
 
 ## Infrastructure
 
-- **Backend**: Convex (database, cron jobs, server actions)
-- **Frontend**: Next.js 15 on Vercel
-- **No external orchestration** — Convex's native cron engine handles all scheduling
+- Backend: Convex
+- Frontend: Next.js 15 on Vercel
+- Auth: Google OAuth via Auth.js
+- Live operational sources: Airtable shared view and Google Sheets
+- Historical source: Google Groups browser backfill
+
+## Current Reality
+
+The current system is best understood as:
+
+- a live site tracker
+- a supervised partner-reply assistant
+- a historical message backfill pipeline
+- a feedback collection system for improving all three
+
+It is not fully autonomous. The point of the current design is to capture high-quality human feedback so the system can improve safely before more autonomy is allowed.
