@@ -9,27 +9,50 @@ const lifecycleSteps = [
   {
     title: "1. Inbound capture",
     body:
-      "The system watches the EDU Ops inbox, stores inbound emails involving edu.ops, and links them to the right site, partner, or thread when possible.",
+      "The system watches the EDU Ops inbox, stores inbound emails involving edu.ops, and links them to the right site, partner, or thread when possible. Google Groups history can also be backfilled into the archive for older work.",
   },
   {
-    title: "2. Classification",
+    title: "2. Site and task context",
     body:
-      "Each inbound email is classified into an operational type such as partner scheduling, partner completion, partner question, internal action needed, or unknown.",
+      "The dashboard tracks each site as a small task portfolio. Every site starts with standard M1 tasks like SIR, LiDAR Scan, and Building Inspection, and site progress is derived from task state instead of a single hard-coded badge.",
   },
   {
-    title: "3. Decisioning",
+    title: "3. Classification and detection",
     body:
-      "Decision trees decide whether to draft a response, wait for more information, escalate to a human, or simply track the message in context.",
+      "Live inbound email is classified into operational types such as partner scheduling, partner completion, partner question, internal action needed, or unknown. Archived Google Groups messages are also scanned for task signals and missing site records.",
   },
   {
-    title: "4. Draft review",
+    title: "4. Decisioning and review",
     body:
-      "For supervised classes, the agent generates a draft and sends it to the review queue for human approval, editing, or rejection.",
+      "Decision trees decide whether to draft a response, wait for more information, escalate to a human, or simply track the message in context. Draft replies and proposed task transitions both go through human review.",
   },
   {
     title: "5. Send and learn",
     body:
-      "When a reviewer acts, the system stores the final outcome, edit distance, and edit categories so draft quality can be measured over time.",
+      "When a reviewer acts, the system stores the final outcome, edit distance, edit categories, task signal outcomes, and site record dispositions so system quality can be measured and improved over time.",
+  },
+];
+
+const dashboardSections = [
+  {
+    title: "Site progress",
+    body:
+      "The main progress bar is derived from active task states. It is not just a visual summary of LiDAR and inspection fields. If a new required task is added later, the percentage can drop because the denominator changes.",
+  },
+  {
+    title: "Task checklist",
+    body:
+      "Each site shows the current task set and state for SIR, LiDAR Scan, and Building Inspection. Tracking integrations update LiDAR and inspection task state, while email review can advance tasks based on message evidence.",
+  },
+  {
+    title: "Tracking panel",
+    body:
+      "The tracking panel shows the latest LiDAR and inspection facts pulled from the shared Airtable view and Google Sheet, plus freshness timestamps so reviewers can see whether the card is current.",
+  },
+  {
+    title: "Site record disposition",
+    body:
+      "Expanded site cards now include a disposition control so reviewers can mark a record as confirmed, needs review, or invalid and leave a note. This is feedback on whether the site record itself was created correctly from the message thread.",
   },
 ];
 
@@ -68,6 +91,27 @@ const labelGroups = [
       ["expired", "The draft was no longer valid to send."],
     ],
   },
+  {
+    title: "Task states",
+    items: [
+      ["requested", "The work has been requested or kicked off but is not yet scheduled."],
+      ["scheduled", "A date or clear scheduled commitment exists."],
+      ["in progress", "The work is underway."],
+      ["in review", "A deliverable was sent and is being reviewed or processed."],
+      ["completed", "The task is complete."],
+      ["blocked", "The task cannot move forward without another decision or dependency clearing."],
+      ["not needed", "The task does not apply and is excluded from the progress denominator."],
+    ],
+  },
+  {
+    title: "Site record dispositions",
+    items: [
+      ["unreviewed", "No human has confirmed whether the site record was created correctly from the source thread."],
+      ["confirmed", "The site record looks valid and correctly linked to the underlying work."],
+      ["needs review", "The record may be right, but something about the address, source thread, or context is questionable."],
+      ["invalid", "The record should not exist as a live site and should be treated as a creation error or false positive."],
+    ],
+  },
 ];
 
 const reviewerActions = [
@@ -97,6 +141,26 @@ const editingRules = [
 ];
 
 const faqItems = [
+  {
+    question: "How is site progress calculated now?",
+    answer:
+      "Progress is derived from the active task set on the site. Each task state maps to a weighted progress value, and the site percentage is the average across active tasks. This means the main dashboard percentage is task-based, not just tracker-based.",
+  },
+  {
+    question: "What is the difference between a task signal and a draft review?",
+    answer:
+      "A task signal is a proposed task-state transition inferred from archived Google Groups mail. A draft review is a proposed outbound reply inferred from live inbound email. Both are human-reviewed, but they improve different parts of the system.",
+  },
+  {
+    question: "Why would a message show no site match in task-signal diagnostics?",
+    answer:
+      "Usually because the system cannot confidently map the message to an existing tracked site. The archive discovery flow now tries to create missing site records from strong address extractions, then reruns signal extraction against the expanded site list.",
+  },
+  {
+    question: "What should we do with bad site records?",
+    answer:
+      "Use the site record disposition control on the site card. Mark obviously bad records as invalid, suspicious ones as needs review, and leave a note. This feedback is meant to improve the site-creation logic over time.",
+  },
   {
     question: "What does pass rate actually mean?",
     answer:
@@ -160,7 +224,7 @@ export default function DocsPage() {
       <section className="space-y-4">
         {sectionTitle(
           "Process overview",
-          "The current system is designed for AI drafting with human review. The learning loop depends on reviewers acting consistently."
+          "The current system is designed for task tracking, AI drafting, and human review. The learning loop depends on reviewers acting consistently across both email and site-record feedback."
         )}
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
           {lifecycleSteps.map((step) => (
@@ -174,8 +238,50 @@ export default function DocsPage() {
 
       <section className="space-y-4">
         {sectionTitle(
+          "How the dashboard works now",
+          "The dashboard is no longer just a list of tracker fields. It is a site-level operating view built on tasks, source freshness, and reviewer feedback."
+        )}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {dashboardSections.map((section) => (
+            <div key={section.title} className="bg-white border border-gray-200 rounded-xl p-5">
+              <h3 className="text-sm font-semibold text-gray-900">{section.title}</h3>
+              <p className="mt-2 text-sm leading-6 text-gray-600">{section.body}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="space-y-4">
+        {sectionTitle(
+          "Archive backfill and task signals",
+          "Historical Google Groups mail now feeds the task system in a supervised way."
+        )}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <div className="bg-white border border-gray-200 rounded-xl p-5">
+            <h3 className="text-sm font-semibold text-gray-900">Raw archive first</h3>
+            <p className="mt-2 text-sm leading-6 text-gray-600">
+              Google Groups backfill is stored as raw archived threads and messages first. The system does not write directly from scraped history into live task state.
+            </p>
+          </div>
+          <div className="bg-white border border-gray-200 rounded-xl p-5">
+            <h3 className="text-sm font-semibold text-gray-900">Signal extraction second</h3>
+            <p className="mt-2 text-sm leading-6 text-gray-600">
+              Archived messages are scanned for supported task types and proposed state transitions. Those proposals appear on the Task Signals page for human review before they touch live task history.
+            </p>
+          </div>
+          <div className="bg-white border border-gray-200 rounded-xl p-5">
+            <h3 className="text-sm font-semibold text-gray-900">Site discovery support</h3>
+            <p className="mt-2 text-sm leading-6 text-gray-600">
+              If archive diagnostics show lots of no-site-match results, admins can run site discovery from archived messages, create missing site records from strong address extractions, and then rerun signal extraction.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section className="space-y-4">
+        {sectionTitle(
           "Reviewer execution guidance",
-          "Use the queue to enforce quality and teach the system what a correct response looks like."
+          "Use the queues and site-review controls to enforce quality and teach the system what a correct response and a correct record both look like."
         )}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           {reviewerActions.map((action) => (
@@ -194,6 +300,14 @@ export default function DocsPage() {
                 <span>{rule}</span>
               </li>
             ))}
+          </ul>
+        </div>
+        <div className="bg-white border border-gray-200 rounded-xl p-5">
+          <h3 className="text-sm font-semibold text-gray-900">Admin-only controls</h3>
+          <ul className="mt-3 space-y-2 text-sm leading-6 text-gray-600">
+            <li>Use dashboard admin controls to refresh scheduling, completion, tracking, or task backfill on demand.</li>
+            <li>Use Task Signals admin controls to run signal extraction or archive-driven site discovery when historical messages need another pass.</li>
+            <li>Use site disposition feedback when the record itself is wrong, even if the task signal or draft logic is otherwise behaving as expected.</li>
           </ul>
         </div>
       </section>
