@@ -148,6 +148,94 @@ async function findOrCreateSiteByAddress(
   return { siteId, created: true };
 }
 
+async function findSuppressionMatch(
+  ctx: { db: { query: Function } },
+  args: {
+    normalizedAddress: string;
+    messageId?: string;
+    threadId?: string;
+  },
+) {
+  const exact = await ctx.db
+    .query("siteDiscoverySuppressions")
+    .withIndex("by_normalizedAddress", (q: any) => q.eq("normalizedAddress", args.normalizedAddress))
+    .first();
+
+  if (exact) {
+    return exact;
+  }
+
+  const allSuppressions = await ctx.db.query("siteDiscoverySuppressions").collect();
+
+  if (args.messageId) {
+    const byMessage = allSuppressions.find((suppression: any) => suppression.sourceMessageIds.includes(args.messageId));
+    if (byMessage) {
+      return byMessage;
+    }
+  }
+
+  if (args.threadId) {
+    const byThread = allSuppressions.find((suppression: any) => suppression.sourceThreadIds.includes(args.threadId));
+    if (byThread) {
+      return byThread;
+    }
+  }
+
+  return allSuppressions.find((suppression: any) => {
+    const a = args.normalizedAddress;
+    const b = suppression.normalizedAddress;
+    const isPrefix = a.startsWith(b) || b.startsWith(a);
+    const isFuzzy = !isPrefix && similarity(a, b) >= ADDRESS_MATCH_THRESHOLD;
+    return isPrefix || isFuzzy;
+  }) ?? null;
+}
+
+async function upsertDiscoverySuppression(
+  ctx: { db: { insert: Function; patch: Function; query: Function } },
+  args: {
+    siteAddress: string;
+    normalizedAddress: string;
+    reason: string;
+    note?: string;
+    sourceMessageIds?: string[];
+    sourceThreadIds?: string[];
+    createdBy?: string;
+    createdAt: number;
+  },
+) {
+  const existing = await ctx.db
+    .query("siteDiscoverySuppressions")
+    .withIndex("by_normalizedAddress", (q: any) => q.eq("normalizedAddress", args.normalizedAddress))
+    .first();
+
+  const sourceMessageIds = Array.from(new Set(args.sourceMessageIds?.filter(Boolean) ?? []));
+  const sourceThreadIds = Array.from(new Set(args.sourceThreadIds?.filter(Boolean) ?? []));
+
+  if (!existing) {
+    return ctx.db.insert("siteDiscoverySuppressions", {
+      normalizedAddress: args.normalizedAddress,
+      siteAddress: args.siteAddress,
+      reason: args.reason,
+      note: args.note,
+      sourceMessageIds,
+      sourceThreadIds,
+      createdAt: args.createdAt,
+      createdBy: args.createdBy,
+    });
+  }
+
+  await ctx.db.patch(existing._id, {
+    siteAddress: args.siteAddress,
+    reason: args.reason,
+    note: args.note ?? existing.note,
+    sourceMessageIds: Array.from(new Set([...(existing.sourceMessageIds ?? []), ...sourceMessageIds])),
+    sourceThreadIds: Array.from(new Set([...(existing.sourceThreadIds ?? []), ...sourceThreadIds])),
+    createdBy: args.createdBy ?? existing.createdBy,
+  });
+
+  return existing._id;
+}
+
 // Public Queries (for dashboard)
 
 export const list = query({
@@ -328,6 +416,7 @@ export const discoverFromArchive = internalMutation({
     let created = 0;
     let matchedExisting = 0;
     let noAddress = 0;
+    let suppressed = 0;
 
     for (const message of sortedMessages) {
       reviewed += 1;
@@ -350,6 +439,17 @@ export const discoverFromArchive = internalMutation({
       const extracted = extractSiteInfo(parsed, { requireStrongSiteIntent: true });
       if (!extracted) {
         noAddress += 1;
+        continue;
+      }
+
+      const suppression = await findSuppressionMatch(ctx as never, {
+        normalizedAddress: normalizeAddress(extracted.address),
+        messageId: parsed.messageId,
+        threadId: parsed.threadId,
+      });
+
+      if (suppression) {
+        suppressed += 1;
         continue;
       }
 
@@ -390,6 +490,7 @@ export const discoverFromArchive = internalMutation({
       created,
       matchedExisting,
       noAddress,
+      suppressed,
     };
   },
 });
@@ -510,6 +611,25 @@ export const adminDelete = mutation({
   },
 });
 
+export const adminUpsertDiscoverySuppression = mutation({
+  args: {
+    siteAddress: v.string(),
+    normalizedAddress: v.string(),
+    reason: v.string(),
+    note: v.optional(v.string()),
+    sourceMessageIds: v.optional(v.array(v.string())),
+    sourceThreadIds: v.optional(v.array(v.string())),
+    createdBy: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const suppressionId = await upsertDiscoverySuppression(ctx as never, {
+      ...args,
+      createdAt: Date.now(),
+    });
+    return ctx.db.get(suppressionId);
+  },
+});
+
 export const adminDeleteCascade = mutation({
   args: { id: v.id("sites") },
   handler: async (ctx, { id }) => {
@@ -529,6 +649,23 @@ export const adminDeleteCascade = mutation({
         ctx.db.query("emailClassifications").collect(),
         ctx.db.query("emailThreads").collect(),
       ]);
+
+    const shouldSuppressFutureDiscovery =
+      site.recordDisposition === "invalid" ||
+      /not applicable/i.test(site.recordDispositionNote ?? "");
+
+    if (shouldSuppressFutureDiscovery) {
+      await upsertDiscoverySuppression(ctx as never, {
+        siteAddress: site.siteAddress,
+        normalizedAddress: site.normalizedAddress,
+        reason: "invalid_site_record",
+        note: site.recordDispositionNote,
+        sourceMessageIds: (site.triggerEmails ?? []).map((trigger: any) => trigger.messageId || trigger.emailId).filter(Boolean),
+        sourceThreadIds: (site.triggerEmails ?? []).map((trigger: any) => trigger.threadId).filter(Boolean),
+        createdBy: site.recordDispositionBy,
+        createdAt: site.recordDispositionAt ?? Date.now(),
+      });
+    }
 
     for (const draft of draftEmails) {
       await ctx.db.patch(draft._id, { siteId: undefined });
@@ -578,6 +715,7 @@ export const adminDeleteCascade = mutation({
       deletedProcessedMessageCount: processedMessages.length,
       deletedAuditLogCount: auditLogs.length,
       unlinkedDraftCount: draftEmails.length,
+      futureDiscoverySuppressed: shouldSuppressFutureDiscovery,
     };
   },
 });

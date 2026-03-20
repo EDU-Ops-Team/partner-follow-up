@@ -428,6 +428,18 @@ export default defineSchema({
     .index("by_externalMessageId", ["externalMessageId"])
     .index("by_groupThreadId", ["groupThreadId"]),
 
+  siteDiscoverySuppressions: defineTable({
+    normalizedAddress: v.string(),
+    siteAddress: v.string(),
+    reason: v.string(),
+    note: v.optional(v.string()),
+    sourceMessageIds: v.array(v.string()),
+    sourceThreadIds: v.array(v.string()),
+    createdAt: v.number(),
+    createdBy: v.optional(v.string()),
+  })
+    .index("by_normalizedAddress", ["normalizedAddress"]),
+
   taskSignals: defineTable({
     messageId: v.id("groupMessages"),
     groupThreadId: v.optional(v.string()),
