@@ -31,12 +31,11 @@ Both `npm run dev` and `npx convex dev` must be running during development.
 ### Convex Backend (`convex/`)
 
 **Cron-driven automation** (defined in `convex/crons.ts`):
-- `checkEmail` (every 15m) — polls Gmail for trigger emails, creates site records
 - `checkScheduling` (every 30m) — checks Airtable + Sheets for scheduling updates, sends reminders
 - `checkCompletion` (every 30m) — monitors LiDAR completion + report status, resolves sites
-- `checkReplies` (every 15m) — processes vendor replies on active threads, saves attachments to Drive
 - `classifyInbound` (every 15m) — classifies inbound emails via rules/LLM, creates email thread records
-- `executeDecisions` (every 15m) — runs decision trees on classified emails, creates draft replies
+- `executeDecisions` (every 15m) — runs decision trees on classified emails, creates draft replies or approved auto-sends
+- `checkReplies` remains in the codebase as a disabled legacy path while reply-thread behaviors are migrated
 
 **Function types:**
 - Public queries/mutations (`query`, `mutation`) — called from React frontend or admin API
@@ -50,8 +49,11 @@ Both `npm run dev` and `npx convex dev` must be running during development.
 ### Data Flow
 
 ```
-Gmail trigger email
-  → checkEmail action → creates site (phase=scheduling)
+Inbound email to edu.ops
+  → classifyInbound action → classify + link site/thread/vendor context
+  → executeDecisions action → queue draft or run approved template send logic
+
+Tracked site
   → checkScheduling action → matches address in Airtable/Sheets
     → if both scheduled → advance to phase=completion
     → if not → send reminder (Chat + Email), reschedule next check

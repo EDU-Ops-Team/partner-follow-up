@@ -76,43 +76,6 @@ export function siteResolvedChat(site: Site): string {
   ].join("\n");
 }
 
-export function importMissingResponsiblePartyChat(
-  address: string,
-  subject: string,
-  messageId: string
-): string {
-  return [
-    `*⚠ Import Issue — Missing Responsible Party*`,
-    "",
-    `An email labeled \`vendor-import\` was found but no responsible party could be determined:`,
-    `• Address: ${address}`,
-    `• Subject: ${subject}`,
-    `• Message ID: ${messageId}`,
-    "",
-    `Please assign a responsible party manually via the dashboard or re-forward the email with the vendor in To/Cc.`,
-  ].join("\n");
-}
-
-export function importNoAddressChat(subject: string, messageId: string): string {
-  return [
-    `*⚠ Import Issue — No Address Found*`,
-    "",
-    `An email labeled \`vendor-import\` could not be imported — no site address was found:`,
-    `• Subject: ${subject}`,
-    `• Message ID: ${messageId}`,
-  ].join("\n");
-}
-
-export function importSiteCreatedChat(address: string, responsibleParty: string, source: string): string {
-  return [
-    `*Site Imported — ${address}*`,
-    "",
-    `A new site has been created from a labeled email:`,
-    `• Responsible Party: ${responsibleParty}`,
-    `• Source: ${source}`,
-  ].join("\n");
-}
-
 export function replyReceivedChat(site: Site, senderEmail: string, summary: string): string {
   return [
     `*Reply Received — ${site.siteAddress}*`,

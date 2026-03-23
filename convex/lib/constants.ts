@@ -4,10 +4,6 @@ export const TRIGGER_EMAIL_SENDER = "zack.lamb@2hourlearning.com";
 /** Gmail query for trigger emails */
 export const GMAIL_QUERY = `from:${TRIGGER_EMAIL_SENDER} is:unread`;
 
-/** Gmail label for manual import */
-export const IMPORT_LABEL_NAME = "vendor-import";
-export const IMPORT_GMAIL_QUERY = `label:vendor-import`;
-
 /** Business days between scheduling check reminders */
 export const SCHEDULING_CHECK_INTERVAL_DAYS = 2;
 
