@@ -11,7 +11,6 @@
 import type * as admin from "../admin.js";
 import type * as auditLogs from "../auditLogs.js";
 import type * as checkCompletion from "../checkCompletion.js";
-import type * as checkEmail from "../checkEmail.js";
 import type * as checkReplies from "../checkReplies.js";
 import type * as checkScheduling from "../checkScheduling.js";
 import type * as classificationGates from "../classificationGates.js";
@@ -73,7 +72,6 @@ declare const fullApi: ApiFromModules<{
   admin: typeof admin;
   auditLogs: typeof auditLogs;
   checkCompletion: typeof checkCompletion;
-  checkEmail: typeof checkEmail;
   checkReplies: typeof checkReplies;
   checkScheduling: typeof checkScheduling;
   classificationGates: typeof classificationGates;
