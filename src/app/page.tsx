@@ -1034,6 +1034,178 @@ function InboundCard({
     </div>
   );
 }
+function FeedbackInsights() {
+  const [data, setData] = useState<{
+    siteFeedback: {
+      pendingDispositionCount: number;
+      reviewedCount: number;
+      confirmedCount: number;
+      needsReviewCount: number;
+      invalidCount: number;
+      recentFlagged: Array<{
+        siteAddress: string;
+        disposition: "needs_review" | "invalid";
+        note: string | null;
+        reviewedBy: string | null;
+        reviewedAt: number;
+      }>;
+    };
+    inboundFeedback: {
+      pendingReviewCount: number;
+      reviewedCount: number;
+      siteLinkedCount: number;
+      stayedUnmatchedCount: number;
+      topCorrections: Array<{
+        original: string;
+        corrected: string;
+        count: number;
+      }>;
+      recentUnmatched: Array<{
+        originalClassificationType: string;
+        correctedClassificationType: string;
+        note: string | null;
+        reviewedBy: string;
+        reviewedAt: number;
+      }>;
+    };
+  } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const res = await fetch('/api/dashboard/feedback-insights', { cache: 'no-store' });
+        if (!res.ok) throw new Error(`Request failed (${res.status})`);
+        const payload = await res.json();
+        if (active) setData(payload);
+      } catch (err) {
+        if (active) setError(err instanceof Error ? err.message : 'Failed to load feedback insights');
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  if (error) {
+    return <div className="mb-6 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>;
+  }
+
+  if (!data) {
+    return <div className="mb-6 rounded-lg border border-gray-200 bg-white p-4 text-sm text-gray-400">Loading feedback insights...</div>;
+  }
+
+  return (
+    <div className="mb-6 space-y-4">
+      <div>
+        <h2 className="text-sm font-semibold text-gray-900">Feedback Insights</h2>
+        <p className="text-sm text-gray-500 mt-1">
+          This is the quality signal from reviewed site records and inbound label corrections.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+        <div className="rounded-lg border border-gray-200 bg-white p-4">
+          <div className="text-xs uppercase tracking-wide text-gray-500">Site Feedback Pending</div>
+          <div className="mt-2 text-2xl font-semibold text-gray-900">{data.siteFeedback.pendingDispositionCount}</div>
+        </div>
+        <div className="rounded-lg border border-gray-200 bg-white p-4">
+          <div className="text-xs uppercase tracking-wide text-gray-500">Sites Confirmed</div>
+          <div className="mt-2 text-2xl font-semibold text-gray-900">{data.siteFeedback.confirmedCount}</div>
+        </div>
+        <div className="rounded-lg border border-gray-200 bg-white p-4">
+          <div className="text-xs uppercase tracking-wide text-gray-500">Need Site Review</div>
+          <div className="mt-2 text-2xl font-semibold text-gray-900">{data.siteFeedback.needsReviewCount}</div>
+        </div>
+        <div className="rounded-lg border border-gray-200 bg-white p-4">
+          <div className="text-xs uppercase tracking-wide text-gray-500">Invalid Sites</div>
+          <div className="mt-2 text-2xl font-semibold text-gray-900">{data.siteFeedback.invalidCount}</div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+        <div className="rounded-lg border border-gray-200 bg-white p-4">
+          <div className="text-xs uppercase tracking-wide text-gray-500">Inbound Pending</div>
+          <div className="mt-2 text-2xl font-semibold text-gray-900">{data.inboundFeedback.pendingReviewCount}</div>
+        </div>
+        <div className="rounded-lg border border-gray-200 bg-white p-4">
+          <div className="text-xs uppercase tracking-wide text-gray-500">Inbound Reviewed</div>
+          <div className="mt-2 text-2xl font-semibold text-gray-900">{data.inboundFeedback.reviewedCount}</div>
+        </div>
+        <div className="rounded-lg border border-gray-200 bg-white p-4">
+          <div className="text-xs uppercase tracking-wide text-gray-500">Emails Linked</div>
+          <div className="mt-2 text-2xl font-semibold text-gray-900">{data.inboundFeedback.siteLinkedCount}</div>
+        </div>
+        <div className="rounded-lg border border-gray-200 bg-white p-4">
+          <div className="text-xs uppercase tracking-wide text-gray-500">Still Unmatched</div>
+          <div className="mt-2 text-2xl font-semibold text-gray-900">{data.inboundFeedback.stayedUnmatchedCount}</div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="rounded-lg border border-gray-200 bg-white p-4">
+          <div className="text-xs uppercase tracking-wide text-gray-500">Recent Flagged Sites</div>
+          <div className="mt-3 space-y-3">
+            {data.siteFeedback.recentFlagged.length === 0 ? (
+              <div className="text-sm text-gray-400">No flagged site feedback yet.</div>
+            ) : (
+              data.siteFeedback.recentFlagged.map((item, index) => (
+                <div key={`${item.siteAddress}-${index}`} className="rounded border border-gray-100 bg-gray-50 p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-sm font-medium text-gray-900">{item.siteAddress}</div>
+                    {dispositionBadge(item.disposition)}
+                  </div>
+                  <div className="mt-2 text-xs text-gray-500">
+                    {item.reviewedBy ? `Reviewed by ${item.reviewedBy} ` : ''}{timeAgo(item.reviewedAt)}
+                  </div>
+                  {item.note && <div className="mt-2 text-sm text-gray-600">{item.note}</div>}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-gray-200 bg-white p-4 space-y-4">
+          <div>
+            <div className="text-xs uppercase tracking-wide text-gray-500">Top Inbound Corrections</div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {data.inboundFeedback.topCorrections.length === 0 ? (
+                <span className="text-sm text-gray-400">No inbound corrections yet.</span>
+              ) : (
+                data.inboundFeedback.topCorrections.map((item) => (
+                  <span key={`${item.original}-${item.corrected}`} className="inline-flex items-center gap-2 rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-700">
+                    <span>{item.original.replace(/_/g, ' ')} {'->'} {item.corrected.replace(/_/g, ' ')}</span>
+                    <span className="font-semibold text-gray-900">{item.count}</span>
+                  </span>
+                ))
+              )}
+            </div>
+          </div>
+
+          <div>
+            <div className="text-xs uppercase tracking-wide text-gray-500">Recent Unmatched Decisions</div>
+            <div className="mt-3 space-y-3">
+              {data.inboundFeedback.recentUnmatched.length === 0 ? (
+                <div className="text-sm text-gray-400">No unmatched feedback decisions yet.</div>
+              ) : (
+                data.inboundFeedback.recentUnmatched.map((item, index) => (
+                  <div key={`${item.reviewedAt}-${index}`} className="rounded border border-gray-100 bg-gray-50 p-3">
+                    <div className="text-sm font-medium text-gray-900">
+                      {item.originalClassificationType.replace(/_/g, ' ')} {'->'} {item.correctedClassificationType.replace(/_/g, ' ')}
+                    </div>
+                    <div className="mt-2 text-xs text-gray-500">Reviewed by {item.reviewedBy} {timeAgo(item.reviewedAt)}</div>
+                    {item.note && <div className="mt-2 text-sm text-gray-600">{item.note}</div>}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 function AdminTrackingControls() {
   const { data: session } = useSession();
   const role = (session?.user as { role?: "admin" | "reviewer" } | undefined)?.role;
@@ -1194,6 +1366,9 @@ export default function Dashboard() {
     </main>
   );
 }
+
+
+
 
 
 

@@ -165,6 +165,80 @@ export const getInboundReviewQueue = query({
   },
 });
 
+export const getFeedbackInsights = query({
+  args: { apiKey: v.string() },
+  handler: async (ctx, { apiKey }) => {
+    requireApiKey(apiKey);
+
+    const [classifications, feedback] = await Promise.all([
+      ctx.db.query("emailClassifications").collect(),
+      ctx.db.query("emailClassificationFeedback").collect(),
+    ]);
+
+    const latestFeedbackByClassificationId = new Map<string, (typeof feedback)[number]>();
+    for (const item of feedback.sort((a, b) => b.reviewedAt - a.reviewedAt)) {
+      const key = String(item.classificationId);
+      if (!latestFeedbackByClassificationId.has(key)) {
+        latestFeedbackByClassificationId.set(key, item);
+      }
+    }
+
+    const reviewed = Array.from(latestFeedbackByClassificationId.values());
+    const pendingReviewCount = classifications.filter(
+      (classification) =>
+        classification.matchedSiteIds.length === 0 &&
+        classification.status !== "archived" &&
+        !latestFeedbackByClassificationId.has(String(classification._id))
+    ).length;
+
+    const correctionPairCounts = new Map<string, { original: string; corrected: string; count: number }>();
+    let siteLinkedCount = 0;
+    let stayedUnmatchedCount = 0;
+
+    for (const item of reviewed) {
+      const pairKey = `${item.originalClassificationType}->${item.correctedClassificationType}`;
+      const current = correctionPairCounts.get(pairKey) ?? {
+        original: item.originalClassificationType,
+        corrected: item.correctedClassificationType,
+        count: 0,
+      };
+      current.count += 1;
+      correctionPairCounts.set(pairKey, current);
+
+      if (item.correctedMatchedSiteIds.length > 0) {
+        siteLinkedCount += 1;
+      } else {
+        stayedUnmatchedCount += 1;
+      }
+    }
+
+    const topCorrections = Array.from(correctionPairCounts.values())
+      .sort((a, b) => b.count - a.count || a.original.localeCompare(b.original) || a.corrected.localeCompare(b.corrected))
+      .slice(0, 5);
+
+    const recentUnmatched = reviewed
+      .filter((item) => item.correctedMatchedSiteIds.length === 0)
+      .sort((a, b) => b.reviewedAt - a.reviewedAt)
+      .slice(0, 5)
+      .map((item) => ({
+        originalClassificationType: item.originalClassificationType,
+        correctedClassificationType: item.correctedClassificationType,
+        note: item.note ?? null,
+        reviewedBy: item.reviewedBy,
+        reviewedAt: item.reviewedAt,
+      }));
+
+    return {
+      pendingReviewCount,
+      reviewedCount: reviewed.length,
+      siteLinkedCount,
+      stayedUnmatchedCount,
+      topCorrections,
+      recentUnmatched,
+    };
+  },
+});
+
 export const archive = mutation({
   args: { id: v.id("emailClassifications"), apiKey: v.string() },
   handler: async (ctx, { id, apiKey }) => {

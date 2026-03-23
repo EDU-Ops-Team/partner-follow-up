@@ -409,6 +409,69 @@ export const getStats = query({
   },
 });
 
+export const getFeedbackInsights = query({
+  args: { apiKey: v.string() },
+  handler: async (ctx, { apiKey }) => {
+    const expected = process.env.REVIEW_API_KEY ?? process.env.ADMIN_API_KEY;
+    if (!expected) {
+      throw new Error("Server misconfigured: REVIEW_API_KEY missing");
+    }
+    if (apiKey !== expected) {
+      throw new Error("Unauthorized");
+    }
+
+    const [sites, feedback] = await Promise.all([
+      ctx.db.query("sites").collect(),
+      ctx.db.query("siteRecordFeedback").collect(),
+    ]);
+
+    const latestFeedbackBySiteId = new Map<string, (typeof feedback)[number]>();
+    for (const item of feedback.sort((a, b) => b.appliedAt - a.appliedAt)) {
+      if (!latestFeedbackBySiteId.has(item.siteId)) {
+        latestFeedbackBySiteId.set(item.siteId, item);
+      }
+    }
+
+    const pendingDispositionCount = sites.filter(
+      (site) => !site.recordDisposition || site.recordDisposition === "unreviewed"
+    ).length;
+
+    const reviewed = Array.from(latestFeedbackBySiteId.values());
+    const counts = reviewed.reduce(
+      (acc, item) => {
+        acc[item.disposition] += 1;
+        return acc;
+      },
+      {
+        confirmed: 0,
+        needs_review: 0,
+        invalid: 0,
+      }
+    );
+
+    const recentFlagged = reviewed
+      .filter((item) => item.disposition !== "confirmed")
+      .sort((a, b) => b.appliedAt - a.appliedAt)
+      .slice(0, 5)
+      .map((item) => ({
+        siteAddress: item.siteAddress,
+        disposition: item.disposition,
+        note: item.note ?? null,
+        reviewedBy: item.reviewedBy ?? null,
+        reviewedAt: item.reviewedAt ?? item.appliedAt,
+      }));
+
+    return {
+      pendingDispositionCount,
+      reviewedCount: reviewed.length,
+      confirmedCount: counts.confirmed,
+      needsReviewCount: counts.needs_review,
+      invalidCount: counts.invalid,
+      recentFlagged,
+    };
+  },
+});
+
 export const getById = query({
   args: { id: v.id("sites") },
   handler: async (ctx, { id }) => {
