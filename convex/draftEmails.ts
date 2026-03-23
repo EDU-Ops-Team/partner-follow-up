@@ -370,6 +370,50 @@ export const create = internalMutation({
   },
 });
 
+export const createAutoSent = internalMutation({
+  args: {
+    classificationId: v.id("emailClassifications"),
+    threadId: v.optional(v.string()),
+    originalTo: v.string(),
+    originalCc: v.optional(v.string()),
+    originalSubject: v.string(),
+    originalBody: v.string(),
+    sentTo: v.string(),
+    sentCc: v.optional(v.string()),
+    sentSubject: v.string(),
+    sentBody: v.string(),
+    siteId: v.optional(v.id("sites")),
+    vendorId: v.optional(v.id("vendors")),
+    tier: v.number(),
+    feedbackNote: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    return ctx.db.insert("draftEmails", {
+      classificationId: args.classificationId,
+      threadId: args.threadId,
+      originalTo: args.originalTo,
+      originalCc: args.originalCc,
+      originalSubject: args.originalSubject,
+      originalBody: args.originalBody,
+      sentTo: args.sentTo,
+      sentCc: args.sentCc,
+      sentSubject: args.sentSubject,
+      sentBody: args.sentBody,
+      status: "auto_sent",
+      siteId: args.siteId,
+      vendorId: args.vendorId,
+      tier: args.tier,
+      editsMade: false,
+      editDistance: 0,
+      editCategories: [],
+      feedbackReasons: [],
+      feedbackNote: args.feedbackNote,
+      reviewedAt: Date.now(),
+      createdAt: Date.now(),
+    });
+  },
+});
+
 export const updateReview = internalMutation({
   args: {
     id: v.id("draftEmails"),

@@ -2,6 +2,7 @@
 
 import { internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
+import { GOOGLE_DRIVE_PARENT_FOLDER_ID } from "./lib/constants";
 import {
   AGENT_GMAIL_QUERY,
   AGENT_POLL_BATCH_SIZE,
@@ -13,13 +14,134 @@ import {
 import {
   listMessages,
   getMessage,
+  getAttachment,
   parseGmailMessage,
   markAsRead,
 } from "./services/agentGmail";
+import { findOrCreateFolder, uploadFile } from "./services/googleDrive";
 import { resolveContext } from "./services/contextResolver";
 import { classify } from "./services/emailClassifier";
+import { parseReplyIntent } from "./services/replyParser";
+import { deriveInboundReplyUpdates } from "./lib/replyEffects";
 import { logger } from "./lib/logger";
 import type { Id } from "./_generated/dataModel";
+
+function getSenderEmail(fromHeader: string): string {
+  return fromHeader.match(/<([^>]+)>/)?.[1]?.toLowerCase()
+    ?? fromHeader.toLowerCase().trim();
+}
+
+async function processInboundSiteEffects(
+  ctx: any,
+  args: {
+    messageId: string;
+    parsed: ReturnType<typeof parseGmailMessage>;
+    classificationType: string;
+    siteIds: Id<"sites">[];
+    isInternalSender: boolean;
+  }
+) {
+  const { messageId, parsed, classificationType, siteIds, isInternalSender } = args;
+
+  if (siteIds.length === 0 || isInternalSender) {
+    return;
+  }
+
+  const intent = parseReplyIntent(parsed.body, parsed.attachments);
+
+  for (const siteId of siteIds) {
+    const site = await ctx.runQuery(internal.sites.getByIdInternal, { id: siteId });
+    if (!site) {
+      continue;
+    }
+
+    const uploadedAttachmentLinks: string[] = [];
+
+    if (parsed.attachments.length > 0) {
+      try {
+        let folderId = site.driveFolderId;
+        if (!folderId) {
+          folderId = await findOrCreateFolder(GOOGLE_DRIVE_PARENT_FOLDER_ID, site.siteAddress);
+          await ctx.runMutation(internal.sites.update, {
+            id: site._id,
+            updates: { driveFolderId: folderId },
+          });
+        }
+
+        for (const attachment of parsed.attachments) {
+          try {
+            const content = await getAttachment(messageId, attachment.attachmentId);
+            const { webViewLink } = await uploadFile(
+              folderId,
+              attachment.filename,
+              attachment.mimeType,
+              content
+            );
+            if (webViewLink) {
+              uploadedAttachmentLinks.push(webViewLink);
+            }
+            await ctx.runMutation(internal.auditLogs.create, {
+              siteId: site._id,
+              action: "attachment_saved",
+              details: {
+                filename: attachment.filename,
+                driveLink: webViewLink,
+                gmailMessageId: messageId,
+                classificationType,
+              },
+              level: "info",
+            });
+          } catch (error) {
+            logger.error("Failed to save inbound attachment", {
+              siteId: site._id,
+              messageId,
+              filename: attachment.filename,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+        }
+      } catch (error) {
+        logger.error("Failed to prepare site drive folder for inbound attachment", {
+          siteId: site._id,
+          messageId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    const derived = deriveInboundReplyUpdates({
+      site,
+      classificationType,
+      intent,
+      uploadedAttachmentLinks,
+    });
+
+    if (Object.keys(derived.updates).length === 0) {
+      continue;
+    }
+
+    await ctx.runMutation(internal.sites.update, {
+      id: site._id,
+      updates: derived.updates,
+    });
+    await ctx.runMutation(internal.tasks.syncFromSite, {
+      siteId: site._id,
+      updatedAt: parsed.date.getTime(),
+    });
+    await ctx.runMutation(internal.auditLogs.create, {
+      siteId: site._id,
+      action: "status_updated_from_reply",
+      details: {
+        gmailMessageId: messageId,
+        classificationType,
+        replyIntent: intent.type,
+        summary: derived.summary,
+        updates: derived.updates,
+      },
+      level: "info",
+    });
+  }
+}
 
 export const run = internalAction({
   handler: async (ctx): Promise<{ processed: number; errors: string[] }> => {
@@ -69,8 +191,7 @@ export const run = internalAction({
         }
 
         // Skip automated/system emails
-        const senderEmail = parsed.from.match(/<([^>]+)>/)?.[1]?.toLowerCase()
-          ?? parsed.from.toLowerCase().trim();
+        const senderEmail = getSenderEmail(parsed.from);
         const isSkippedSender = SKIP_SENDERS.some((pattern) =>
           pattern.includes("@")
             ? senderEmail === pattern || senderEmail.endsWith(pattern)
@@ -82,6 +203,8 @@ export const run = internalAction({
           await markAsRead(messageId);
           continue;
         }
+        const isInternalSender = INTERNAL_DOMAINS.some((domain) => senderEmail.endsWith(`@${domain}`));
+
         const vendorDoc = await ctx.runQuery(
           internal.vendors.getByContactEmail,
           { email: senderEmail }
@@ -153,6 +276,17 @@ export const run = internalAction({
           ?? autoDetectedVendorId
           ?? undefined;
 
+        const resolvedSiteIds = Array.from(
+          new Set([
+            ...(context.matchedSiteIds as Id<"sites">[]),
+            ...(
+              !context.matchedSiteIds.length && existingThread?.linkedSiteIds.length === 1
+                ? existingThread.linkedSiteIds
+                : []
+            ),
+          ])
+        );
+
         // Create classification record
         await ctx.runMutation(internal.emailClassifications.create, {
           gmailMessageId: messageId,
@@ -168,7 +302,7 @@ export const run = internalAction({
           classificationMethod: classification.classificationMethod,
           confidence: classification.confidence,
           extractedEntities: mergedEntities,
-          matchedSiteIds: context.matchedSiteIds as Id<"sites">[],
+          matchedSiteIds: resolvedSiteIds,
           matchedVendorId: resolvedVendorId,
           action: "pending",
           status: "classified",
@@ -186,7 +320,7 @@ export const run = internalAction({
           // Update existing thread
           const updatedSiteIds = [...new Set([
             ...existingThread.linkedSiteIds,
-            ...context.matchedSiteIds as Id<"sites">[],
+            ...resolvedSiteIds,
           ])];
           await ctx.runMutation(internal.emailThreads.update, {
             id: existingThread._id,
@@ -213,6 +347,14 @@ export const run = internalAction({
           });
         }
 
+        await processInboundSiteEffects(ctx, {
+          messageId,
+          parsed,
+          classificationType: classification.classificationType,
+          siteIds: resolvedSiteIds,
+          isInternalSender,
+        });
+
         // Mark as read in Gmail
         await markAsRead(messageId);
 
@@ -226,7 +368,7 @@ export const run = internalAction({
             classificationType: classification.classificationType,
             classificationMethod: classification.classificationMethod,
             confidence: classification.confidence,
-            matchedSiteCount: context.matchedSiteIds.length,
+            matchedSiteCount: resolvedSiteIds.length,
             matchedVendor: vendorLookup?.vendorName ?? null,
           },
           level: "info",

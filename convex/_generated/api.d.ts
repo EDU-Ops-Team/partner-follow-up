@@ -35,6 +35,7 @@ import type * as lib_constants from "../lib/constants.js";
 import type * as lib_holidayData from "../lib/holidayData.js";
 import type * as lib_learningInsights from "../lib/learningInsights.js";
 import type * as lib_logger from "../lib/logger.js";
+import type * as lib_replyEffects from "../lib/replyEffects.js";
 import type * as lib_retry from "../lib/retry.js";
 import type * as lib_reviewDiff from "../lib/reviewDiff.js";
 import type * as lib_taskSignalDetection from "../lib/taskSignalDetection.js";
@@ -96,6 +97,7 @@ declare const fullApi: ApiFromModules<{
   "lib/holidayData": typeof lib_holidayData;
   "lib/learningInsights": typeof lib_learningInsights;
   "lib/logger": typeof lib_logger;
+  "lib/replyEffects": typeof lib_replyEffects;
   "lib/retry": typeof lib_retry;
   "lib/reviewDiff": typeof lib_reviewDiff;
   "lib/taskSignalDetection": typeof lib_taskSignalDetection;

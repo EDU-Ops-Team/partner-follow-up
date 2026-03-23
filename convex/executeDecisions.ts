@@ -3,11 +3,23 @@
 import { internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
+import { INTERNAL_DOMAINS } from "./lib/constants";
 import { plainTextToHtml } from "./lib/reviewDiff";
 import { logger } from "./lib/logger";
 import { generateDraftReply } from "./services/claudeAI";
 import { executeTree, type DecisionContext } from "./services/decisionEngine";
 import { populateEmail, type TemplateContext } from "./services/templateEngine";
+
+const AUTO_SEND_TEMPLATE_IDS = new Set(["t05_inspection_report_clean"]);
+
+function extractRecipientEmails(value: string): string[] {
+  return value
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => part.match(/<([^>]+)>/)?.[1] ?? part)
+    .map((email) => email.toLowerCase());
+}
 
 type ThreadHistoryMessage = {
   from: string;
@@ -116,6 +128,9 @@ export const run = internalAction({
               }
             | undefined;
 
+          let classificationStatus: "action_pending" | "action_taken" = "action_pending";
+          let classificationAction = decision.action;
+
           if (decision.templateId) {
             const templateContext: TemplateContext = {
               site: siteDoc ? {
@@ -167,17 +182,48 @@ export const run = internalAction({
 
             const populated = populateEmail(decision.templateId, templateContext);
             if (populated) {
-              await ctx.runMutation(internal.draftEmails.create, {
-                classificationId: classification._id,
-                threadId: classification.threadId,
-                originalTo: populated.to,
-                originalCc: populated.cc,
-                originalSubject: populated.subject,
-                originalBody: populated.body,
-                siteId: classification.matchedSiteIds[0] ?? undefined,
-                vendorId: classification.matchedVendorId ?? undefined,
-                tier: decision.tier ?? 2,
-              });
+              const recipientEmails = extractRecipientEmails(populated.to);
+              const canAutoSend =
+                decision.action === "send_template" &&
+                AUTO_SEND_TEMPLATE_IDS.has(decision.templateId) &&
+                recipientEmails.length > 0 &&
+                recipientEmails.every((email) =>
+                  INTERNAL_DOMAINS.some((domain) => email.endsWith(`@${domain}`))
+                );
+
+              if (canAutoSend) {
+                const draftId = await ctx.runMutation(internal.draftEmails.createAutoSent, {
+                  classificationId: classification._id,
+                  threadId: classification.threadId,
+                  originalTo: populated.to,
+                  originalCc: populated.cc,
+                  originalSubject: populated.subject,
+                  originalBody: populated.body,
+                  sentTo: populated.to,
+                  sentCc: populated.cc,
+                  sentSubject: populated.subject,
+                  sentBody: populated.body,
+                  siteId: classification.matchedSiteIds[0] ?? undefined,
+                  vendorId: classification.matchedVendorId ?? undefined,
+                  tier: decision.tier ?? 2,
+                  feedbackNote: `Auto-sent from template ${decision.templateId}`,
+                });
+                await ctx.scheduler.runAfter(0, internal.sendDraftEmail.sendApproved, { id: draftId });
+                classificationStatus = "action_taken";
+                classificationAction = "auto_sent";
+              } else {
+                await ctx.runMutation(internal.draftEmails.create, {
+                  classificationId: classification._id,
+                  threadId: classification.threadId,
+                  originalTo: populated.to,
+                  originalCc: populated.cc,
+                  originalSubject: populated.subject,
+                  originalBody: populated.body,
+                  siteId: classification.matchedSiteIds[0] ?? undefined,
+                  vendorId: classification.matchedVendorId ?? undefined,
+                  tier: decision.tier ?? 2,
+                });
+              }
             }
           } else {
             if (classification.matchedVendorId) {
@@ -245,8 +291,8 @@ export const run = internalAction({
 
           await ctx.runMutation(internal.emailClassifications.updateStatus, {
             id: classification._id,
-            status: "action_pending",
-            action: decision.action,
+            status: classificationStatus,
+            action: classificationAction,
             decisionLogId: logId,
           });
         } else if (decision.action === "escalate") {
