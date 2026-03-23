@@ -3,15 +3,13 @@ import { Doc } from "../_generated/dataModel";
 
 type Site = Doc<"sites">;
 
-// ── Chat Templates ──
-
 export function schedulingReminderChat(site: Site, daysSinceTrigger: number): string {
   return [
-    `*Scheduling Reminder — ${site.siteAddress}*`,
+    `*Scheduling Reminder - ${site.siteAddress}*`,
     "",
     `It has been *${daysSinceTrigger} business days* since this site was triggered and scheduling is still incomplete:`,
-    `• LiDAR Scheduled: ${site.lidarScheduled ? "Yes" : "No"}`,
-    `• Building Inspection Scheduled: ${site.inspectionScheduled ? "Yes" : "No"}`,
+    `- LiDAR Scheduled: ${site.lidarScheduled ? "Yes" : "No"}`,
+    `- Building Inspection Scheduled: ${site.inspectionScheduled ? "Yes" : "No"}`,
     "",
     `Responsible Party: ${site.responsiblePartyName ?? "N/A"} (${site.responsiblePartyEmail})`,
     `Reminder #${site.schedulingReminderCount + 1}`,
@@ -20,32 +18,32 @@ export function schedulingReminderChat(site: Site, daysSinceTrigger: number): st
 
 export function bothScheduledChat(site: Site): string {
   return [
-    `*Both Scheduled — ${site.siteAddress}*`,
+    `*Both Scheduled - ${site.siteAddress}*`,
     "",
-    `LiDAR and Building Inspection have both been scheduled:`,
-    `• LiDAR: ${site.lidarScheduledDatetime ? format(new Date(site.lidarScheduledDatetime), "MMM d, yyyy h:mm a") : "Scheduled (date TBD)"}`,
-    `• Inspection: ${site.inspectionDate ?? "Date TBD"}${site.inspectionTime ? ` at ${site.inspectionTime}` : ""}`,
+    "LiDAR and Building Inspection have both been scheduled:",
+    `- LiDAR: ${site.lidarScheduledDatetime ? format(new Date(site.lidarScheduledDatetime), "MMM d, yyyy h:mm a") : "Scheduled (date TBD)"}`,
+    `- Inspection: ${site.inspectionDate ?? "Date TBD"}${site.inspectionTime ? ` at ${site.inspectionTime}` : ""}`,
     "",
-    `Moving to completion monitoring phase.`,
+    "Moving to completion monitoring phase.",
   ].join("\n");
 }
 
 export function lidarCompleteChat(site: Site): string {
   return [
-    `*LiDAR Scan Complete — ${site.siteAddress}*`,
+    `*LiDAR Scan Complete - ${site.siteAddress}*`,
     "",
-    `The LiDAR scan has been completed.`,
+    "The LiDAR scan has been completed.",
     `Job Status: ${site.lidarJobStatus ?? "Complete"}`,
     "",
-    `Waiting for Building Inspection report.`,
+    "Waiting for Building Inspection report.",
   ].join("\n");
 }
 
 export function reportReminderChat(site: Site): string {
   return [
-    `*Report Reminder — ${site.siteAddress}*`,
+    `*Report Reminder - ${site.siteAddress}*`,
     "",
-    `The Building Inspection report has not yet been received.`,
+    "The Building Inspection report has not yet been received.",
     site.reportDueDate ? `Due Date: ${site.reportDueDate}` : "",
     `Reminder #${site.reportReminderCount + 1}`,
     "",
@@ -56,82 +54,34 @@ export function reportReminderChat(site: Site): string {
 export function reportReceivedChat(site: Site, reportLink?: string): string {
   const link = reportLink ?? site.reportLink;
   return [
-    `*Report Received — ${site.siteAddress}*`,
+    `*Report Received - ${site.siteAddress}*`,
     "",
-    `The Building Inspection report has been received.`,
+    "The Building Inspection report has been received.",
     link ? `Report Link: ${link}` : "",
     "",
-    `This site is now fully resolved.`,
+    "This site is now fully resolved.",
   ].filter(Boolean).join("\n");
 }
 
 export function siteResolvedChat(site: Site): string {
   return [
-    `*Site Resolved — ${site.siteAddress}*`,
+    `*Site Resolved - ${site.siteAddress}*`,
     "",
-    `All items complete:`,
-    `• LiDAR: Complete`,
-    `• Building Inspection: Complete`,
-    `• Report: Received${site.reportLink ? ` (${site.reportLink})` : ""}`,
-  ].join("\n");
-}
-
-export function replyReceivedChat(site: Site, senderEmail: string, summary: string): string {
-  return [
-    `*Reply Received — ${site.siteAddress}*`,
-    "",
-    `From: ${senderEmail}`,
-    `Summary: ${summary}`,
-  ].join("\n");
-}
-
-export function attachmentSavedChat(site: Site, filename: string, driveLink: string): string {
-  return [
-    `*Attachment Saved — ${site.siteAddress}*`,
-    "",
-    `File: ${filename}`,
-    driveLink ? `Link: ${driveLink}` : "",
-  ].filter(Boolean).join("\n");
-}
-
-export function statusUpdatedFromReplyChat(site: Site, field: string, newValue: string): string {
-  return [
-    `*Status Updated from Reply — ${site.siteAddress}*`,
-    "",
-    `${field}: ${newValue}`,
+    "All items complete:",
+    "- LiDAR: Complete",
+    "- Building Inspection: Complete",
+    `- Report: Received${site.reportLink ? ` (${site.reportLink})` : ""}`,
   ].join("\n");
 }
 
 export function llmResponseSentChat(site: Site, recipientEmail: string, responseSummary: string): string {
   return [
-    `*Auto-Reply Sent — ${site.siteAddress}*`,
+    `*Auto-Reply Sent - ${site.siteAddress}*`,
     "",
     `To: ${recipientEmail}`,
     `Response: ${responseSummary}`,
   ].join("\n");
 }
-
-export function llmNeedsReviewChat(site: Site, senderEmail: string, partnerBody: string): string {
-  return [
-    `*⚠ Needs Human Review — ${site.siteAddress}*`,
-    "",
-    `A partner reply could not be confidently answered by the agent:`,
-    `• From: ${senderEmail}`,
-    `• Message: ${partnerBody.length > 300 ? partnerBody.slice(0, 297) + "..." : partnerBody}`,
-    "",
-    `A holding response has been sent. Please review and follow up manually.`,
-  ].join("\n");
-}
-
-export function holdingResponseSentChat(site: Site, senderEmail: string): string {
-  return [
-    `*Holding Response Sent — ${site.siteAddress}*`,
-    "",
-    `A holding response was sent to ${senderEmail} while the team reviews their message.`,
-  ].join("\n");
-}
-
-// ── Email Templates ──
 
 export function schedulingReminderEmail(
   site: Site,

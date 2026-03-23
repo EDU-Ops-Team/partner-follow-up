@@ -35,7 +35,6 @@ Both `npm run dev` and `npx convex dev` must be running during development.
 - `checkCompletion` (every 30m) — monitors LiDAR completion + report status, resolves sites
 - `classifyInbound` (every 15m) — classifies inbound emails via rules/LLM, creates email thread records
 - `executeDecisions` (every 15m) — runs decision trees on classified emails, creates draft replies or approved auto-sends
-- `checkReplies` remains in the codebase as a disabled legacy path while reply-thread behaviors are migrated
 
 **Function types:**
 - Public queries/mutations (`query`, `mutation`) — called from React frontend or admin API
