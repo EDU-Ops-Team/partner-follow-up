@@ -95,3 +95,12 @@ export const AGENT_POLL_BATCH_SIZE = 50;
 
 /** Body preview length for classifications */
 export const BODY_PREVIEW_LENGTH = 500;
+
+/** Classification types that indicate a partner/vendor relationship (used for auto-vendor creation) */
+export const PARTNER_LIKE_TYPES = [
+  "vendor_scheduling",
+  "vendor_completion",
+  "vendor_question",
+  "vendor_invoice",
+  "inspection_report",
+];

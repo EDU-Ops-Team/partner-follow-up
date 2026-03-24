@@ -17,7 +17,6 @@ export interface TemplateContext {
     inspectionTime?: string;
     reportDueDate?: string;
     reportLink?: string;
-    lidarScheduledDate?: string;
     lidarJobStatus?: string;
     lidarScheduledStatus?: string;
     inspectionScheduledStatus?: string;

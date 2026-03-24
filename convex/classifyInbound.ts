@@ -1,6 +1,7 @@
 "use node";
 
 import { internalAction } from "./_generated/server";
+import type { ActionCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { GOOGLE_DRIVE_PARENT_FOLDER_ID } from "./lib/constants";
 import {
@@ -8,6 +9,7 @@ import {
   AGENT_POLL_BATCH_SIZE,
   BODY_PREVIEW_LENGTH,
   INTERNAL_DOMAINS,
+  PARTNER_LIKE_TYPES,
   SKIP_SENDERS,
   SKIP_SUBJECT_PATTERNS,
 } from "./lib/constants";
@@ -32,7 +34,7 @@ function getSenderEmail(fromHeader: string): string {
 }
 
 async function processInboundSiteEffects(
-  ctx: any,
+  ctx: ActionCtx,
   args: {
     messageId: string;
     parsed: ReturnType<typeof parseGmailMessage>;
@@ -210,7 +212,7 @@ export const run = internalAction({
           { email: senderEmail }
         );
         const vendorLookup = vendorDoc
-          ? { vendorId: vendorDoc._id as string, vendorName: vendorDoc.name }
+          ? { vendorId: vendorDoc._id as string /* Id<T> extends string */, vendorName: vendorDoc.name }
           : null;
 
         // Look up existing thread
@@ -219,7 +221,7 @@ export const run = internalAction({
           { gmailThreadId: parsed.threadId }
         );
         const threadContext = existingThread
-          ? { linkedSiteIds: existingThread.linkedSiteIds as string[] }
+          ? { linkedSiteIds: existingThread.linkedSiteIds as string[] /* Id<"sites">[] extends string[] */ }
           : null;
 
         // Get all site addresses for matching
@@ -231,7 +233,7 @@ export const run = internalAction({
           vendorLookup,
           threadContext,
           siteAddresses.map((s: { id: Id<"sites">; normalizedAddress: string }) => ({
-            id: s.id as string,
+            id: s.id as string, // Id<"sites"> extends string
             normalizedAddress: s.normalizedAddress,
           }))
         );
@@ -249,10 +251,6 @@ export const run = internalAction({
         };
 
         // Auto-detect new partner if sender is external and not already matched
-        const PARTNER_LIKE_TYPES = [
-          "vendor_scheduling", "vendor_completion", "vendor_question",
-          "vendor_invoice", "inspection_report",
-        ];
         let autoDetectedVendorId: Id<"vendors"> | undefined;
         if (
           !vendorDoc &&
@@ -272,10 +270,12 @@ export const run = internalAction({
           );
         }
 
-        const resolvedVendorId = (context.matchedVendorId as Id<"vendors">)
+        // contextResolver returns plain string IDs; re-cast to typed Id for Convex mutations
+        const resolvedVendorId = (context.matchedVendorId as Id<"vendors"> | undefined)
           ?? autoDetectedVendorId
           ?? undefined;
 
+        // contextResolver returns plain string IDs; re-cast to typed Id for Convex mutations
         const resolvedSiteIds = Array.from(
           new Set([
             ...(context.matchedSiteIds as Id<"sites">[]),
@@ -338,7 +338,7 @@ export const run = internalAction({
             gmailThreadId: parsed.threadId,
             subject: parsed.subject,
             participants: uniqueParticipants,
-            linkedSiteIds: context.matchedSiteIds as Id<"sites">[],
+            linkedSiteIds: context.matchedSiteIds as Id<"sites">[], // contextResolver returns plain string IDs
             linkedVendorId: resolvedVendorId,
             state: "active",
             lastMessageAt: parsed.date.getTime(),

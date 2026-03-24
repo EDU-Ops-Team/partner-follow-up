@@ -1,4 +1,5 @@
 import { query, mutation, internalQuery, internalMutation } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
 import { v } from "convex/values";
 
 function requireApiKey(apiKey: string): void {
@@ -47,6 +48,8 @@ export const listBySiteId = query({
   args: { siteId: v.id("sites"), apiKey: v.string() },
   handler: async (ctx, { siteId, apiKey }) => {
     requireApiKey(apiKey);
+    // Full table scan is intentional: Convex cannot index array fields for
+    // containment queries. A join table would be needed to avoid this scan.
     const all = await ctx.db
       .query("emailClassifications")
       .order("desc")
@@ -89,30 +92,39 @@ export const getInboundReviewQueue = query({
       }
     }
 
-    const reviewedFromFeedback = await Promise.all(
-      Array.from(latestFeedbackByClassificationId.values())
-        .slice(0, cappedLimit)
-        .map(async (feedback) => {
-          const classification = await ctx.db.get(feedback.classificationId);
-          if (!classification) return null;
+    const feedbackItems = Array.from(latestFeedbackByClassificationId.values()).slice(0, cappedLimit);
 
-          const primarySiteId = feedback.correctedMatchedSiteIds[0];
-          const site = primarySiteId ? await ctx.db.get(primarySiteId) as { _id: typeof primarySiteId; siteAddress: string; fullAddress?: string } | null : null;
+    // Fetch all classifications and sites in parallel (avoids sequential awaits per item)
+    const [classificationDocs, siteDocs] = await Promise.all([
+      Promise.all(feedbackItems.map((f) => ctx.db.get(f.classificationId))),
+      Promise.all(
+        feedbackItems.map((f) =>
+          f.correctedMatchedSiteIds[0]
+            ? ctx.db.get(f.correctedMatchedSiteIds[0])
+            : Promise.resolve(null)
+        )
+      ),
+    ]);
 
-          return {
-            dispositionStatus: feedback.correctedMatchedSiteIds.length > 0 ? "linked" : "unmatched",
-            classification,
-            feedback,
-            site: site
-              ? {
-                  _id: site._id,
-                  siteAddress: site.siteAddress,
-                  fullAddress: site.fullAddress,
-                }
-              : null,
-          };
-        })
-    );
+    const reviewedFromFeedback = feedbackItems
+      .map((feedback, i) => {
+        const classification = classificationDocs[i];
+        if (!classification) return null;
+        const siteDoc = siteDocs[i] as { _id: Id<"sites">; siteAddress: string; fullAddress?: string } | null;
+        return {
+          dispositionStatus: feedback.correctedMatchedSiteIds.length > 0 ? "linked" : "unmatched",
+          classification,
+          feedback,
+          site: siteDoc
+            ? {
+                _id: siteDoc._id,
+                siteAddress: siteDoc.siteAddress,
+                fullAddress: siteDoc.fullAddress,
+              }
+            : null,
+        };
+      })
+      .filter((item): item is NonNullable<typeof item> => item !== null);
 
     const feedbackClassificationIds = new Set(Array.from(latestFeedbackByClassificationId.keys()));
     const pending = allClassifications
@@ -137,7 +149,7 @@ export const getInboundReviewQueue = query({
         site: null,
       }));
 
-    const reviewed = [...reviewedFromFeedback.filter((item): item is NonNullable<typeof item> => item !== null), ...archived];
+    const reviewed = [...reviewedFromFeedback, ...archived];
 
     const correctedLabelCounts = new Map();
     for (const item of reviewed) {

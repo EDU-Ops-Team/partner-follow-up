@@ -13,6 +13,7 @@ export async function GET(
   }
 
   const { id } = await params;
+  // Convex validates the ID and returns null if not found (handled below)
   const classificationId = id as Id<"emailClassifications">;
   const convex = getServerConvex();
   const apiKey = getServerApiKey();

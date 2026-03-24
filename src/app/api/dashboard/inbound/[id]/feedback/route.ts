@@ -12,19 +12,21 @@ export async function PATCH(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const body = await request.json() as {
-    correctedClassificationType?: string;
-    correctedSiteId?: string;
-    note?: string;
-  };
+  let body: { correctedClassificationType?: string; correctedSiteId?: string; note?: string };
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
 
   if (!body.correctedClassificationType) {
     return NextResponse.json({ error: "correctedClassificationType is required" }, { status: 400 });
   }
 
   const { id } = await params;
-  const correctedMatchedSiteIds = body.correctedSiteId
-    ? [body.correctedSiteId as Id<"sites">]
+  // correctedSiteId is a user-supplied string; Convex validates the ID exists in applyFeedback
+  const correctedMatchedSiteIds = body.correctedSiteId?.trim()
+    ? [body.correctedSiteId.trim() as Id<"sites">]
     : [];
 
   const result = await getServerConvex().mutation(api.emailClassifications.applyFeedback, {
