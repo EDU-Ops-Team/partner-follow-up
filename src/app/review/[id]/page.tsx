@@ -415,6 +415,27 @@ export default function ReviewDraft() {
                       setIsSubmitting(true);
                       setError(null);
                       try {
+                        await postAction(`/api/review/drafts/${encodeURIComponent(String(draftId))}/already-replied`, {
+                          ...reviewerPayload(),
+                          feedbackNote: feedbackNote.trim() || undefined,
+                        });
+                        router.push("/review");
+                      } catch (err) {
+                        setError(err instanceof Error ? err.message : "Failed to mark as already replied");
+                      } finally {
+                        setIsSubmitting(false);
+                      }
+                    }}
+                    className="px-4 py-2 text-sm font-medium text-gray-600 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 transition-colors"
+                  >
+                    Already Replied
+                  </button>
+                  <button
+                    disabled={isSubmitting}
+                    onClick={async () => {
+                      setIsSubmitting(true);
+                      setError(null);
+                      try {
                         if (feedbackReasons.length === 0) {
                           throw new Error("Select at least one reason before rejecting");
                         }

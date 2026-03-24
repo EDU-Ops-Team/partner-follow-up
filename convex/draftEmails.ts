@@ -642,3 +642,30 @@ export const reject = mutation({
     });
   },
 });
+
+export const alreadyReplied = mutation({
+  args: {
+    id: v.id("draftEmails"),
+    apiKey: v.string(),
+    reviewerGoogleId: v.optional(v.string()),
+    reviewerEmail: v.optional(v.string()),
+    feedbackNote: v.optional(v.string()),
+  },
+  handler: async (ctx, { id, apiKey, reviewerGoogleId, reviewerEmail, feedbackNote }) => {
+    requireApiKey(apiKey);
+    const draft = await ctx.db.get(id);
+    if (!draft || draft.status !== "pending") {
+      throw new Error("Draft not found or not pending");
+    }
+
+    const reviewer = await getReviewerByIdentity(ctx, { reviewerGoogleId, reviewerEmail });
+    if (!reviewer) throw new Error("Reviewer not found");
+
+    await ctx.db.patch(id, {
+      status: "already_replied",
+      reviewedBy: reviewer._id,
+      reviewedAt: Date.now(),
+      feedbackNote: feedbackNote?.trim() || undefined,
+    });
+  },
+});

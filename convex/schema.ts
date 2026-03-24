@@ -281,6 +281,7 @@ export default defineSchema({
       v.literal("edited"),
       v.literal("saved"),
       v.literal("rejected"),
+      v.literal("already_replied"),
       v.literal("auto_sent"),
       v.literal("expired")
     ),

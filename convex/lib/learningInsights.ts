@@ -1,6 +1,6 @@
 export interface LearningInsightRecord {
   classificationType: string;
-  status: "pending" | "approved" | "edited" | "saved" | "rejected" | "auto_sent" | "expired";
+  status: "pending" | "approved" | "edited" | "saved" | "rejected" | "already_replied" | "auto_sent" | "expired";
   editsMade?: boolean;
   editDistance?: number;
   editCategories?: string[];
@@ -36,13 +36,15 @@ function round(value: number): number {
 }
 
 function isReviewed(status: LearningInsightRecord["status"]): boolean {
-  return status === "approved" || status === "edited" || status === "saved" || status === "rejected";
+  return status === "approved" || status === "edited" || status === "saved" || status === "rejected" || status === "already_replied";
 }
 
 function isPass(record: LearningInsightRecord): boolean {
   if (!isReviewed(record.status) || record.status === "rejected" || record.status === "saved") {
     return false;
   }
+  // already_replied = draft was correct but unnecessary; counts as a pass for learning
+  if (record.status === "already_replied") return true;
   return (record.editDistance ?? (record.editsMade ? 1 : 0)) <= 0.02;
 }
 
