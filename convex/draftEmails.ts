@@ -1,4 +1,6 @@
 import { query, mutation, internalQuery, internalMutation } from "./_generated/server";
+import type { MutationCtx } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { aggregateLearningInsights } from "./lib/learningInsights";
@@ -16,7 +18,7 @@ function requireApiKey(apiKey: string): void {
 }
 
 async function getReviewerByIdentity(
-  ctx: any,
+  ctx: MutationCtx,
   {
     reviewerGoogleId,
     reviewerEmail,
@@ -115,17 +117,18 @@ export const getInsights = query({
     requireApiKey(apiKey);
 
     const drafts = await ctx.db.query("draftEmails").collect();
+    const classificationIds = Array.from(
+      new Set(drafts.map((draft) => draft.classificationId).filter((id): id is Id<"emailClassifications"> => id !== undefined))
+    );
     const classifications = new Map(
       await Promise.all(
-        Array.from(new Set(drafts.map((draft) => draft.classificationId))).map(async (id) => (
-          [id, await ctx.db.get(id)] as const
-        ))
+        classificationIds.map(async (id) => [id, await ctx.db.get(id)] as const)
       )
     );
 
     return aggregateLearningInsights(
       drafts.map((draft) => ({
-        classificationType: classifications.get(draft.classificationId)?.classificationType ?? "unknown",
+        classificationType: (draft.classificationId ? classifications.get(draft.classificationId)?.classificationType : undefined) ?? "unknown",
         status: draft.status,
         editsMade: draft.editsMade,
         editDistance: draft.editDistance,
@@ -158,6 +161,7 @@ export const getReviewQueue = query({
         classificationIds.map(async (classificationId) => {
           const draft = allDrafts.find((item) => String(item.classificationId) === classificationId);
           if (!draft) return null;
+          if (!draft.classificationId) return null;
           return [classificationId, await ctx.db.get(draft.classificationId)] as const;
         })
       ),
@@ -292,7 +296,7 @@ export const getReviewedExamples = query({
     );
 
     return reviewedDrafts.map((draft) => {
-      const classification = classificationById.get(draft.classificationId);
+      const classification = draft.classificationId ? classificationById.get(draft.classificationId) : undefined;
       const reviewer = draft.reviewedBy ? reviewers.get(draft.reviewedBy) : null;
       const pass =
         draft.status !== "rejected" &&
@@ -359,6 +363,25 @@ export const create = internalMutation({
     originalBody: v.string(),
     siteId: v.optional(v.id("sites")),
     vendorId: v.optional(v.id("vendors")),
+    tier: v.number(),
+  },
+  handler: async (ctx, args) => {
+    return ctx.db.insert("draftEmails", {
+      ...args,
+      status: "pending",
+      createdAt: Date.now(),
+    });
+  },
+});
+
+export const createOutbound = internalMutation({
+  args: {
+    siteId: v.id("sites"),
+    originalTo: v.string(),
+    originalCc: v.optional(v.string()),
+    originalSubject: v.string(),
+    originalBody: v.string(),
+    threadId: v.optional(v.string()),
     tier: v.number(),
   },
   handler: async (ctx, args) => {

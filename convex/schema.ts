@@ -75,6 +75,7 @@ export default defineSchema({
     lastOutreachDate: v.optional(v.number()),
     schedulingReminderCount: v.number(),
     bothScheduledNotified: v.boolean(),
+    initialOutreachSent: v.optional(v.boolean()),
     resolved: v.boolean(),
     resolvedAt: v.optional(v.number()),
 
@@ -264,7 +265,7 @@ export default defineSchema({
     .index("by_state", ["state"]),
 
   draftEmails: defineTable({
-    classificationId: v.id("emailClassifications"),
+    classificationId: v.optional(v.id("emailClassifications")),
     threadId: v.optional(v.string()),
     originalTo: v.string(),
     originalCc: v.optional(v.string()),

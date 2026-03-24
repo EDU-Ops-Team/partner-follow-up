@@ -86,7 +86,7 @@ export function llmResponseSentChat(site: Site, recipientEmail: string, response
 export function schedulingReminderEmail(
   site: Site,
   daysSinceTrigger: number
-): { subject: string; html: string } {
+): { subject: string; html: string; cc: string } {
   return {
     subject: `Scheduling Reminder: ${site.siteAddress} (Reminder #${site.schedulingReminderCount + 1})`,
     html: `
@@ -100,6 +100,7 @@ export function schedulingReminderEmail(
       <p>Please schedule the outstanding items as soon as possible.</p>
       <p>Thank you,<br>EDU Ops Team</p>
     `.trim(),
+    cc: "edu.ops@trilogy.com",
   };
 }
 

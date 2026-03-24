@@ -14,7 +14,7 @@
  * - {{site.address}}, {{site.fullAddress}}, {{site.phase}}
  * - {{site.responsiblePartyName}}, {{site.responsiblePartyEmail}}
  * - {{site.inspectionDate}}, {{site.inspectionTime}}, {{site.reportDueDate}}
- * - {{site.lidarScheduledDate}}, {{site.lidarJobStatus}}
+ * - {{site.lidarJobStatus}}, {{site.lidarScheduledStatus}}
  * - {{site.assignedDRI}}
  * - {{vendor.name}}, {{vendor.contactName}}, {{vendor.contactEmail}}
  * - {{email.from}}, {{email.subject}}, {{email.bodyPreview}}
@@ -94,12 +94,12 @@ export const T01_LANDLORD_QUESTIONNAIRE: EmailTemplate = {
   name: "Landlord/Owner Questionnaire Follow-up",
   tier: 1,
   category: "outbound",
-  subject: "Site Due Diligence: {{site.address}}",
-  defaultCc: ["auth.permitting@trilogy.com"],
+  subject: "{{site.address}} — Introduction & Checklist",
+  defaultCc: ["edu.ops@trilogy.com"],
   body: `
     <p>Hello {{site.responsiblePartyName}},</p>
-    <p>Thank you for your involvement with the site at <strong>{{site.address}}</strong>. As a friendly reminder, if not already done, please schedule the LiDAR scan and Building Inspection at your earliest convenience.</p>
-    <p>We also have a few questions that will help us move forward with due diligence. Could you please provide information on the following:</p>
+    <p>I'm reaching out from the EDU Ops team. We're excited to be moving forward with the space at <strong>{{site.address}}</strong>.</p>
+    <p>Thank you for your attention to getting the Matterport 3D scan and Building Inspection scheduled. In the meantime, it would be a big help if you (or the property manager/owner) could answer a few quick due-diligence questions:</p>
     <ol>
       <li>Do you have shell drawings or any as-built plans of the existing space?</li>
       <li>Are there any Landlord Signage/Design Guidelines?</li>

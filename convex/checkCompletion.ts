@@ -11,7 +11,6 @@ import {
 import { fetchAirtableData, findBestAirtableRow } from "./services/airtableScraper";
 import { fetchInspectionData } from "./services/googleSheets";
 import { postToChat } from "./services/googleChat";
-import { sendEmail, type ThreadingOptions } from "./services/agentGmail";
 import { matchAddress } from "./lib/addressNormalizer";
 import { addBusinessDays } from "./lib/businessDays";
 import {
@@ -86,13 +85,7 @@ export const run = internalAction({
           });
 
           const latestTrigger = site.triggerEmails?.[site.triggerEmails.length - 1];
-          const threadOpts: ThreadingOptions | undefined = (latestTrigger?.threadId ?? site.triggerThreadId)
-            ? {
-                threadId: latestTrigger?.threadId ?? site.triggerThreadId,
-                inReplyTo: latestTrigger?.messageId ?? site.triggerMessageId,
-                references: latestTrigger?.messageId ?? site.triggerMessageId,
-              }
-            : undefined;
+          const threadId = latestTrigger?.threadId ?? site.triggerThreadId ?? undefined;
 
           const lidarMatch = matchAddress(currentSite.siteAddress, airtableAddresses);
           if (lidarMatch.matched && lidarMatch.matchedAddress) {
@@ -279,10 +272,17 @@ export const run = internalAction({
 
           if (needsLidarReminder) {
             const email = lidarCompletionReminderEmail(currentSite);
-            await sendEmail(currentSite.responsiblePartyEmail, email.subject, email.html, undefined, threadOpts);
+            await ctx.runMutation(internal.draftEmails.createOutbound, {
+              siteId: site._id,
+              originalTo: currentSite.responsiblePartyEmail,
+              originalSubject: email.subject,
+              originalBody: email.html,
+              threadId,
+              tier: 2,
+            });
             await ctx.runMutation(internal.auditLogs.create, {
               siteId: site._id,
-              action: "lidar_completion_reminder_sent",
+              action: "lidar_completion_reminder_queued",
               details: {
                 to: currentSite.responsiblePartyEmail,
                 trackingStatus: currentSite.trackingStatus,
@@ -298,12 +298,19 @@ export const run = internalAction({
             const reportTo = currentSite.inspectionContactEmail ?? INSPECTION_CONTACT_EMAIL;
             await postToChat(chatWebhook, reportReminderChat(currentSite));
             const email = inspectionReportReminderEmail(currentSite);
-            await sendEmail(reportTo, email.subject, email.html, undefined, threadOpts);
+            await ctx.runMutation(internal.draftEmails.createOutbound, {
+              siteId: site._id,
+              originalTo: reportTo,
+              originalSubject: email.subject,
+              originalBody: email.html,
+              threadId,
+              tier: 2,
+            });
             reminderUpdates.reportReminderCount = site.reportReminderCount + 1;
             reminderUpdates.lastOutreachDate = now;
             await ctx.runMutation(internal.auditLogs.create, {
               siteId: site._id,
-              action: "report_reminder_sent",
+              action: "report_reminder_queued",
               details: {
                 reminderNumber: site.reportReminderCount + 1,
                 to: reportTo,

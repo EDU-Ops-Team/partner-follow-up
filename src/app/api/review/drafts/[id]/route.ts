@@ -20,10 +20,9 @@ export async function GET(
     return NextResponse.json({ error: "Draft not found" }, { status: 404 });
   }
 
-  const classification = await convex.query(api.emailClassifications.getById, {
-    id: draft.classificationId,
-    apiKey,
-  });
+  const classification = draft.classificationId
+    ? await convex.query(api.emailClassifications.getById, { id: draft.classificationId, apiKey })
+    : null;
 
   return NextResponse.json({ draft, classification });
 }

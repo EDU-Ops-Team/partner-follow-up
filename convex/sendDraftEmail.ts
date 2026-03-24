@@ -13,14 +13,12 @@ export const sendApproved = internalAction({
       throw new Error("Draft missing required send fields");
     }
 
-    const classification = await ctx.runQuery(
-      internal.emailClassifications.getByIdInternal,
-      { classificationId: draft.classificationId }
-    );
+    const classification = draft.classificationId
+      ? await ctx.runQuery(internal.emailClassifications.getByIdInternal, { classificationId: draft.classificationId })
+      : null;
 
-    const threading = classification?.threadId
-      ? { threadId: classification.threadId }
-      : undefined;
+    const threadId = classification?.threadId ?? draft.threadId;
+    const threading = threadId ? { threadId } : undefined;
 
     await sendEmail(
       draft.sentTo,

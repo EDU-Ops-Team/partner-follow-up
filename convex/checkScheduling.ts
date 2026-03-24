@@ -11,7 +11,8 @@ import {
 import { fetchAirtableData, findBestAirtableRow } from "./services/airtableScraper";
 import { fetchInspectionData } from "./services/googleSheets";
 import { postToChat } from "./services/googleChat";
-import { sendEmail, type ThreadingOptions } from "./services/agentGmail";
+import { sendEmail } from "./services/agentGmail";
+import { populateEmail } from "./services/templateEngine";
 import { matchAddress } from "./lib/addressNormalizer";
 import { addBusinessDays, countBusinessDays } from "./lib/businessDays";
 import {
@@ -235,42 +236,80 @@ export const run = internalAction({
               });
             }
 
-            const daysSinceTrigger = countBusinessDays(new Date(site.triggerDate), new Date(now));
-            await postToChat(chatWebhook, schedulingReminderChat(currentSite, daysSinceTrigger));
-            const email = schedulingReminderEmail(currentSite, daysSinceTrigger);
             const latestTrigger = site.triggerEmails?.[site.triggerEmails.length - 1];
-            const threadOpts: ThreadingOptions | undefined = (latestTrigger?.threadId ?? site.triggerThreadId) ? {
-              threadId: latestTrigger?.threadId ?? site.triggerThreadId,
-              inReplyTo: latestTrigger?.messageId ?? site.triggerMessageId,
-              references: latestTrigger?.messageId ?? site.triggerMessageId,
-            } : undefined;
-            await sendEmail(currentSite.responsiblePartyEmail, email.subject, email.html, undefined, threadOpts);
+            const threadId = latestTrigger?.threadId ?? site.triggerThreadId ?? undefined;
 
-            applyUpdates({
-              schedulingReminderCount: site.schedulingReminderCount + 1,
-              lastOutreachDate: now,
-              nextCheckDate: addBusinessDays(new Date(now), SCHEDULING_CHECK_INTERVAL_DAYS).getTime(),
-            });
-
-            await ctx.runMutation(internal.sites.update, {
-              id: site._id,
-              updates: {
-                schedulingReminderCount: currentSite.schedulingReminderCount,
-                lastOutreachDate: currentSite.lastOutreachDate,
-                nextCheckDate: currentSite.nextCheckDate,
-              },
-            });
-            await ctx.runMutation(internal.auditLogs.create, {
-              siteId: site._id,
-              action: "scheduling_reminder_sent",
-              details: {
-                reminderNumber: site.schedulingReminderCount + 1,
-                daysSinceTrigger,
-                trackingStatus: currentSite.trackingStatus,
-                trackingScope: currentSite.trackingScope,
-              },
-              level: "info",
-            });
+            if (!site.initialOutreachSent) {
+              // First contact — queue intro + due-diligence checklist for review
+              const introContext = {
+                site: {
+                  address: currentSite.siteAddress,
+                  fullAddress: currentSite.fullAddress,
+                  responsiblePartyName: currentSite.responsiblePartyName ?? currentSite.responsiblePartyEmail,
+                  responsiblePartyEmail: currentSite.responsiblePartyEmail,
+                },
+              };
+              const intro = populateEmail("t01_landlord_questionnaire", introContext);
+              if (!intro) throw new Error("Template t01_landlord_questionnaire not found");
+              await ctx.runMutation(internal.draftEmails.createOutbound, {
+                siteId: site._id,
+                originalTo: currentSite.responsiblePartyEmail,
+                originalCc: intro.cc,
+                originalSubject: intro.subject,
+                originalBody: intro.body,
+                threadId,
+                tier: 2,
+              });
+              applyUpdates({ initialOutreachSent: true, lastOutreachDate: now });
+              await ctx.runMutation(internal.sites.update, {
+                id: site._id,
+                updates: { initialOutreachSent: true, lastOutreachDate: now },
+              });
+              await ctx.runMutation(internal.auditLogs.create, {
+                siteId: site._id,
+                action: "initial_outreach_queued",
+                details: { to: currentSite.responsiblePartyEmail, templateId: "t01_landlord_questionnaire" },
+                level: "info",
+              });
+            } else {
+              // Subsequent runs — queue scheduling reminder for review
+              const daysSinceTrigger = countBusinessDays(new Date(site.triggerDate), new Date(now));
+              await postToChat(chatWebhook, schedulingReminderChat(currentSite, daysSinceTrigger));
+              const email = schedulingReminderEmail(currentSite, daysSinceTrigger);
+              await ctx.runMutation(internal.draftEmails.createOutbound, {
+                siteId: site._id,
+                originalTo: currentSite.responsiblePartyEmail,
+                originalCc: email.cc,
+                originalSubject: email.subject,
+                originalBody: email.html,
+                threadId,
+                tier: 2,
+              });
+              applyUpdates({
+                schedulingReminderCount: site.schedulingReminderCount + 1,
+                lastOutreachDate: now,
+                nextCheckDate: addBusinessDays(new Date(now), SCHEDULING_CHECK_INTERVAL_DAYS).getTime(),
+              });
+              await ctx.runMutation(internal.sites.update, {
+                id: site._id,
+                updates: {
+                  schedulingReminderCount: currentSite.schedulingReminderCount,
+                  lastOutreachDate: currentSite.lastOutreachDate,
+                  nextCheckDate: currentSite.nextCheckDate,
+                },
+              });
+              await ctx.runMutation(internal.auditLogs.create, {
+                siteId: site._id,
+                action: "scheduling_reminder_queued",
+                details: {
+                  reminderNumber: site.schedulingReminderCount + 1,
+                  daysSinceTrigger,
+                  trackingStatus: currentSite.trackingStatus,
+                  trackingScope: currentSite.trackingScope,
+                },
+                level: "info",
+              });
+            }
           }
 
           result.processed++;
